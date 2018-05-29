@@ -34,7 +34,7 @@ class PutJob(Resource):
       params = json.loads(args['job'])
       logger.info('job args : ' + str(params))
       try:
-        g.prvdr.promote(params)
+        jobId = g.prvdr.promote(params)
       except BaseException as ex:
         return {'status':404,'error':str(ex)}
       else:
@@ -56,11 +56,11 @@ class PostJob(Resource):
       params = json.loads(args['job'])
       logger.info('job args : ' + str(params))
       try:
-        g.prvdr.promote(params,jobCount=jobCount)
+        jobList = g.prvdr.promote(params,jobCount=int(jobCount))
       except BaseException as ex:
         return {'status':404,'error':str(ex)}
       else:
-        return {'status':201,'job_id':jobId}, 201
+        return {'status':201,'job_ids':jobList}, 201
     else:
       return {'status':500,'error':"form parameter 'job' not found"}, 500
 
@@ -85,5 +85,7 @@ if __name__ == '__main__':
   logger.setLevel(logging.INFO)
 
   flask.run(debug=True,use_reloader=False)
+
+
 
  
