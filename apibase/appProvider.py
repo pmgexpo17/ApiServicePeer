@@ -27,9 +27,9 @@ class AppProvider(object):
   def init(self, dbPath):
 
     if self.db:
-      logger.info('XXXXXX init: aready done XXXXXXXXXX')
+      logger.info('%s, init: aready done', __name__)
       return
-    logger.info('XXXXXX init: not done XXXXXXXXXX')
+    logger.info('%s, init: not done', __name__)
     if not os.path.isdir(dbPath):
       raise BaseException("app.config['DB_PATH'] is not a directory : " + dbPath)
     _leveldb = leveldb.LevelDB(dbPath)
@@ -40,7 +40,7 @@ class AppProvider(object):
     scheduler.start()
     self.scheduler = scheduler
     self.registry = ServiceRegister()
-    self.registry.load('/home/devapps/python/ApiServicePeer/flaskApi/temp/apiservices.json')
+    self.registry.load('/apps/home/u352425/wcauto1/temp/apiservices.json')
     self._job = {}
 
   # -------------------------------------------------------------- #
@@ -48,30 +48,29 @@ class AppProvider(object):
   # ---------------------------------------------------------------#
   def addJobGroup(self, params, jobCount):
 
-    if not hasattr(params, 'jobId'):
-      raise BaseException("required parameter 'jobId' not provided")
-    self.parentJob = self._job[params.jobId]
+    director = self._job[params.id]
     module, className = self.registry.getClassName(params.service)
-    jobRange = range(0, jobCount)
+    jobRange = range(jobCount)
 
-    jobs = self.parentJob.listener.addJobs(jobRange)
+    jobs = director.listener.addJobs(jobRange)
+    params.args.append(0)
     for jobNum in jobRange:
       jobId = jobs[jobNum]
-      self._job[jobId] = getattr(module, className)(jobId, self.db)
-      self.addJob(jobId, params, jobNum=jobNum+1)
+      # must be an AppDelegate derivative, leveldb param is fixed by protocol
+      self._job[jobId] = getattr(module, className)(self.db)
+      params.args[-1] = jobNum + 1
+      self.addJob(jobId, params)
+      
+    return jobs
 
   # -------------------------------------------------------------- #
   # addJob
   # ---------------------------------------------------------------#
-  def addJob(self, jobId, params, jobNum=None):
+  def addJob(self, jobId, params):
 
-      args = [jobId] + params.args
-      kwargs = None
-      if hasattr(params, 'kwargs'):
-        kwargs = params.kwargs
-      if jobNum:
-        args += [jobNum]
-      self.scheduler.add_job('apibase:runJob',id=jobId,args=args,kwargs=kwargs)
+    args = [jobId] + params.args
+    self.scheduler.add_job('apibase:dispatch',id=jobId,args=args,kwargs=params.kwargs)
+    return jobId
 
   # -------------------------------------------------------------- #
   # addNewJob
@@ -79,30 +78,44 @@ class AppProvider(object):
   def addNewJob(self, params):
 
     module, className = self.registry.getClassName(params.service)
-    jobId = uuid.uuid4()
-    delegate = getattr(module, className)(jobId, self.db)
+    jobId = str(uuid.uuid4())
+    # must be an AppDirector derivative, leveldb and jobId params are fixed by protocol
+    director = getattr(module, className)(self.db, jobId)
+    # must be an AppListener derivative, leveldb param is fixed by protocol
     module, className = self.registry.getClassName(params.listener)    
-    listener = getattr(module, className)(jobId, self.db)
-    listener.state = delegate.state
+    listener = getattr(module, className)(self.db)
+    listener.state = director.state
     listener.addJob(jobId)
-    delegate.listener = listener
-    self._job[jobId] = delegate
-    self.addJob(jobId, params)
+    director.listener = listener
+    self._job[jobId] = director
     self.scheduler.add_listener(listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
+    self.addJob(jobId, params)
+    return jobId
 
   # -------------------------------------------------------------- #
   # promote
   # ---------------------------------------------------------------#
-  def promote(self, params, jobCount=None):
+  def promote(self, _params, jobCount=None):
 
-    _params = Params(params)
+    params = Params(_params)
     with self.lock:
       try:
-        _params.jobId
+        params.id
       except AttributeError:
-        self.addNewJob(_params)    
-      else:
-        self.addJobGroup(_params, jobCount)
+        raise BaseException("required param 'id' not found")
+      logger.info('job service, id : %s, %s' % (params.id, params.service))
+      if params.id:
+        try:
+          self._job[params.id]
+        except KeyError:
+          raise BaseException('jobId not found in job register : ' + params.id)
+        if params.type == 'delegate':
+          # a live director program has dispatched a delegate
+          return self.addJobGroup(params, jobCount)
+        # a live director program is promoted, ie, state machine is promoted
+        return self.addJob(params.id, params)
+      # a director program is submitted for scheduling
+      return self.addNewJob(params)    
   
 # -------------------------------------------------------------- #
 # ServiceRegister
@@ -148,8 +161,13 @@ class ServiceRegister(object):
 # ServiceRegister
 # ---------------------------------------------------------------#
 class Params(object):
-    def __init__(self, params):
-      try:
-        self.__dict__.update(params)
-      except:
-        raise BaseException('json decode error, bad params')
+  def __init__(self, params):
+    if not hasattr(params,'args'):
+      self.args = []
+    if not hasattr(params,'kwargs'):
+      self.kwargs = None
+    try:
+      self.__dict__.update(params)
+    except:
+      raise BaseException('json decode error, bad params')
+ 
