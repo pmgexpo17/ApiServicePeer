@@ -28,8 +28,6 @@ class LeveldbJobStore(BaseJobStore):
     self.xrefKey = 'JOBXREF|'
     self.pickleProtocol = pickleProtocol
 
- 
-
   # get_job_key - create or retrieve the job_key
   def get_job_key(self, job_id=None):
     if not job_id:
@@ -67,7 +65,6 @@ class LeveldbJobStore(BaseJobStore):
     return '%6f' % timestamp
 
   # _get_all_jobs - retrieve all jobs, returning an iterator
-
   def _get_all_jobs(self, dbKey, incVals=True, startTime=None, endTime=None):
     dbKey = self.__dict__[dbKey]
     startKey = dbKey + startTime if startTime else dbKey + '0'
@@ -80,33 +77,27 @@ class LeveldbJobStore(BaseJobStore):
   def get_due_jobs(self, now):
     timestamp = self.get_timestamp(now)
     cronIter = self._get_all_jobs('cronKey', endTime=timestamp)
-    if cronIter:
-      return self._reconstitute_jobs(cronIter, context='CRON')
-    return []
+    return self._reconstitute_jobs(cronIter, context='CRON')
 
   # get_next_run_time - abstract framework method
   def get_next_run_time(self):
     cronIter = self._get_all_jobs('cronKey')
-    if cronIter:
-      try:
-        cron_key, cron_state = cronIter.next()
-        self._logger.debug('next run time, cron key : ' + cron_key)
-        cron_state = pickle.loads(cron_state)
-        return utc_timestamp_to_datetime(cron_state['next_run_time'])
-      except (StopIteration):
-        return None
-      except BaseException as ex:
-        self._logger.error(str(ex))
-    return None
+    try:
+      cron_key, cron_state = cronIter.next()
+      self._logger.debug('next run time, cron key : ' + cron_key)
+      cron_state = pickle.loads(cron_state)
+      return utc_timestamp_to_datetime(cron_state['next_run_time'])
+    except (StopIteration):
+      return None
+    except BaseException as ex:
+      self._logger.error(str(ex))
 
   # get_all_jobs - abstract framework method
   def get_all_jobs(self):
     jobIter = self._get_all_jobs('jobKey')
-    if jobIter:
-      jobs = self._reconstitute_jobs(jobIter)
-      self._fix_paused_jobs_sorting(jobs)
-      return jobs
-    return []
+    jobs = self._reconstitute_jobs(jobIter)
+    self._fix_paused_jobs_sorting(jobs)
+    return jobs
 
   # add_job - abstract framework method
   def add_job(self, job):
@@ -133,8 +124,8 @@ class LeveldbJobStore(BaseJobStore):
     if job.next_run_time:
       self.add_cron_item(job_key, job.next_run_time)
     job_state = job.__getstate__()
-    self._logger.info('XXXXXXXX job func : ' + str(job_state['func']))
-    self.db.Put(job_key, pickle.dumps(job.__getstate__(),self.pickleProtocol), sync=True)
+    self._logger.debug('job callable : ' + str(job_state['func']))
+    self.db.Put(job_key, pickle.dumps(job_state,self.pickleProtocol), sync=True)
 
   # add_cron_item - add a job runtime item
   def add_cron_item(self, job_key, next_run_time):
@@ -189,21 +180,17 @@ class LeveldbJobStore(BaseJobStore):
 
   # remove_all_jobs - abstract framework method
   def remove_all_jobs(self):
-    itemIter = self.db.RangeIter(include_value=False)
-    if not itemIter:   
-      return
+    jobIter = self._get_all_jobs('jobKey',incVals=False)
     while True:
       try:
-        item_key = itemIter.next()
-        self.db.Delete(item_key)
+        job_key = jobIter.next()
+        self._remove_job(job_key)
       except StopIteration:
         break
 
   # _remove_cron_zombies - remove cron items, where the related job reference does not exist
   def remove_cron_zombies(self):
     cronIter = self._get_all_jobs('cronKey')
-    if not cronIter:   
-      return
     while True:
       try:
         cron_key, cron_item = cronIter.next()
@@ -226,6 +213,7 @@ class LeveldbJobStore(BaseJobStore):
 
   # shutdown - abstract framework method
   def shutdown(self):
+    # TO DO : add method to handle workbench shutdown if shutdown causes data loss
     pass
 
   # _reconstitute_job - remake and return job object
@@ -257,4 +245,3 @@ class LeveldbJobStore(BaseJobStore):
 
   def __repr__(self):
     return '<%s>' % self.__class__.__name__
-    
