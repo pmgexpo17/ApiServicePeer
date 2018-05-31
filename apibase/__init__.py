@@ -1,12 +1,12 @@
 from appProvider import AppProvider
 import logging
 
+logger = logging.getLogger('apscheduler')
 appPrvdr = AppProvider()
 appPrvdr.init('/apps/home/u352425/emltnApi')
 #appPrvdr.init('/home/workspace/leveldb/devdb1')
 
 def dispatch(jobId, *argv, **kwargs):
-  logger = logging.getLogger('apscheduler')
   try:
     delegate = appPrvdr._job[jobId]
   except KeyError:
