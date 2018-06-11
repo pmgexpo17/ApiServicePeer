@@ -4,6 +4,7 @@ from apibase import appPrvdr
 import json
 import logging
 import sys
+import uuid
 
 # create_app style which supports the Flask factory pattern
 def create_app(app_config=None):
@@ -22,7 +23,7 @@ def setPrvdr():
 
 parser = reqparse.RequestParser()
 parser.add_argument('job')
-parser.add_argument('params')
+parser.add_argument('pmeta')
 
 # adds a new program job item, and runs it (TO DO: at the datetime specified)
 class PutJob(Resource):
@@ -30,21 +31,29 @@ class PutJob(Resource):
   def put(self):
     setPrvdr()
     args = parser.parse_args()
-    if args and 'job' in args:
-      params = json.loads(args['job'])
-      logger.info('job args : ' + str(params))
-      try:
-        jobId = g.prvdr.promote(params)
-      except BaseException as ex:
-        return {'status':404,'error':str(ex)}
-      else:
+    if not args:
+      return {'status':500,'error':'empty form args'}, 500
+    try:
+      if 'pmeta' in args:
+        jobId = str(uuid.uuid4())
+        dbKey = 'PMETA|' + jobId
+        g.prvdr.db.Put(dbKey, args['pmeta'])
+        params = json.loads(args['job'])
+        logger.info('job args : ' + str(params))
+        g.prvdr.promote(params,jobId=jobId)
         return {'status':201,'job_id':jobId}, 201
-    else:
+      else:
+        logger.info('pmeta not in request')
+      if 'job' in args:
+        params = json.loads(args['job'])
+        logger.info('job args : ' + str(params))
+        jobId = g.prvdr.promote(params)
+        return {'status':201,'job_id':jobId}, 201
       return {'status':500,'error':"form parameter 'job' not found"}, 500
-
-    def parseArgs(self) :
-
-      parser.parse_args()
+    except BaseException as ex:
+      return {'status':404,'error':str(ex)}
+    else:
+      return {'status':201,'job_id':jobId}, 201
 
 # promotes a live program job item
 class PostJob(Resource):
@@ -86,6 +95,6 @@ if __name__ == '__main__':
 
   flask.run(debug=True,use_reloader=False)
 
-
+ 
 
  
