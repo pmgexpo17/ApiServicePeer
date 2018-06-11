@@ -1,11 +1,13 @@
-import os, sys, time
-import logging
-import json
-import requests, re
-import uuid
 from apiservice import AppDirector, AppState, AppResolveUnit, AppListener, AppDelegate, logger
+from email.mime.text import MIMEText
 from threading import RLock
 from subprocess import Popen, PIPE
+import logging
+import json
+import os, sys, time
+import requests, re
+import smtplib
+import uuid
 
 # -------------------------------------------------------------- #
 # WcEmltnDirector
@@ -13,14 +15,14 @@ from subprocess import Popen, PIPE
 class WcEmltnDirector(AppDirector):
 
   def __init__(self, leveldb, jobId):
-    super(WcEmltnDirector, self).__init__()
-    self._leveldb = leveldb
-    self.serviceName = 'WCEMLTN'
+    super(WcEmltnDirector, self).__init__(leveldb, jobId)
+    self.serviceName = 'WcEmltnDirector'
     self.state.hasNext = True
-    self.state.jobId = jobId
     self.resolve = WcResolveUnit()
     self.resolve.state = self.state
-
+    self.mailer = WcEmailUnit()
+    self.mailer.state = self.state
+    
   # -------------------------------------------------------------- #
   # getServiceName
   # ---------------------------------------------------------------#                                                                                                          
@@ -28,10 +30,49 @@ class WcEmltnDirector(AppDirector):
     return self.serviceName
 
   # -------------------------------------------------------------- #
+  # _start
+  # ---------------------------------------------------------------#                                          
+  def _START(self):
+    logger.debug('[START] loadProgramMeta')
+    _pmeta = self.getProgramMeta()
+    pmeta = _pmeta['WcEmltnDirector']
+    _globals = pmeta['globals'] # append global vars in this list
+    del(pmeta['globals'])
+    if _globals[0] == '*':
+      pmeta.update(_pmeta['Global'])
+    else:
+      for item in _globals:
+        pmeta[item] = _pmeta['Global'][item]    
+    self.resolve.pmeta = pmeta
+    self.resolve._START()
+    self.mailer.pmeta = pmeta
+    self.mailer._START()
+
+  # -------------------------------------------------------------- #
+  # getProgramMeta
+  # ---------------------------------------------------------------#                                          
+  def getProgramMeta(self):
+
+    dbKey = 'PMETA|' + self.state.jobId
+    try:
+      _pmeta = self._leveldb.Get(dbKey)
+    except KeyError:
+      raise BaseException('EEEOWWW! pmeta json document not found : ' + dbKey)
+    return json.loads(_pmeta)
+
+  # -------------------------------------------------------------- #
   # iterate
   # ---------------------------------------------------------------#                                          
   def advance(self, signal=None):
-    if self.state.transition == 'EMLTN_BYSGMT_NOWAIT':
+    if self.state.transition == 'EMLTN_INPUT_PRVDR':
+      # signal = the http status code of the listener promote method
+      if signal == 201:
+        logger.info('state transition is resolved, advancing ...')
+        self.state.transition = 'NA'
+        self.state.inTransition = False
+      else:
+        raise BaseException('WcEmltnInputPrvdr server process failed, rc : %d' % signal)
+    elif self.state.transition == 'EMLTN_BYSGMT_NOWAIT':
       # signal = the http status code of the listener promote method
       if signal == 201:
         logger.info('state transition is resolved, advancing ...')
@@ -46,8 +87,10 @@ class WcEmltnDirector(AppDirector):
   # quicken
   # ---------------------------------------------------------------#
   def quicken(self):      
-    if self.state.transition == 'EMLTN_BYSGMT_NOWAIT':
-      logger.info('state transition : ' + self.state.transition)
+    logger.info('state transition : ' + self.state.transition)
+    if self.state.transition == 'EMLTN_INPUT_PRVDR':
+      self.resolve.putApiRequest()
+    elif self.state.transition == 'EMLTN_BYSGMT_NOWAIT':
       self.resolve.putApiRequest()
 
 # -------------------------------------------------------------- #
@@ -63,16 +106,21 @@ class WcResolveUnit(AppResolveUnit):
     self.sgmtCount = 0
     self.txnNum = 0    
     self.txnCount = 0
-    
+
+  # -------------------------------------------------------------- #
+  # _START
+  # ---------------------------------------------------------------#  
+  def _START(self):
+    pass    
   # -------------------------------------------------------------- #
   # INIT - evalTxnCount
   # - state.current = 'INIT'
   # - state.next = 'TXN_REPEAT'
   # ---------------------------------------------------------------#
   def INIT(self):
-    self.compileSessionVars('batchTxnScheduleWC.sas')
-    self.getTxnCount()
-    self.state.next = 'TXN_REPEAT'
+    self.state.transition = 'EMLTN_INPUT_PRVDR'
+    self.state.inTransition = True
+    self.state.next = 'TXN_REPEAT'      
     self.state.hasNext = True
     return self.state
 
@@ -89,12 +137,12 @@ class WcResolveUnit(AppResolveUnit):
       prcss = Popen(sysArgs,stdout=PIPE,stderr=PIPE)
       (stdout, stderr) = prcss.communicate()
       if prcss.returncode:
-        raise
+        logger.error('returncode: %d, stderr: %s' % (prcss.returncode, stderr))
+        logger.error('please investigate the sas error reported in batchTxnScheduleWC.log')
+        raise BaseException('batchTxnScheduleWC.sas failed, stderr : ' + stderr)
       logger.info('program output : %s' % stdout)
-    except BaseException as ex:
-      logger.error('returncode: %d, stderr: %s' % (prcss.returncode, stderr))
-      logger.error('please investigate the sas error reported in batchTxnScheduleWC.log')
-      raise
+    except OSError as ex:
+      raise BaseException('WcResolveUnit failed, OSError : ' + str(ex))
 
     txnPacket = json.loads(stdout)
     self.txnCount = txnPacket['count']
@@ -106,11 +154,17 @@ class WcResolveUnit(AppResolveUnit):
   # - state.next = 'TXN_SGMT_REPEAT'
   # ---------------------------------------------------------------#
   def TXN_REPEAT(self):
-    if self.txnNum == self.txnCount:
+    if self.txnCount == 0:
+      self.compileSessionVars('batchTxnScheduleWC.sas')
+      self.state.next = 'TXN_REPEAT'
+      self.getTxnCount()
+      self.state.hasNext = True
+      return self.state
+    elif self.txnNum == self.txnCount:
       incItems = ['ciwork','macroLib','progLib','userEmail']
       self.compileSessionVars('restackTxnOutputWC.sas',incItems=incItems)
-      self.restackTxnOutputAll()
       self.state.next = 'COMPLETE'
+      self.restackTxnOutputAll()
       self.state.complete = True
       self.state.hasNext = False
     else:
@@ -131,10 +185,11 @@ class WcResolveUnit(AppResolveUnit):
       prcss = Popen(sysArgs,stdout=PIPE,stderr=PIPE)
       (stdout, stderr) = prcss.communicate()
       if prcss.returncode:
-        raise
-    except BaseException as ex:
-      logger.error('returncode: %d, stderr: %s' % (prcss.returncode, stderr))
-      logger.error('please investigate the sas error reported in restackTxnOutputWC.log')
+        logger.error('returncode: %d, stderr: %s' % (prcss.returncode, stderr))
+        logger.error('please investigate the sas error reported in restackTxnOutputWC.log')
+        raise BaseException('restackTxnOutputWC.sas failed, stderr : ' + stderr)
+    except OSError as ex:
+      raise BaseException('WcResolveUnit failed, OSError : ' + str(ex))
 
   # -------------------------------------------------------------- #
   # TXN_SGMT_REPEAT - evalTxnSgmtRepeat
@@ -143,11 +198,11 @@ class WcResolveUnit(AppResolveUnit):
   # ---------------------------------------------------------------#
   def TXN_SGMT_REPEAT(self):
     self.compileSessionVars('batchScheduleWC.sas')
-    self.getTxnSgmtCount()
     self.state.transition = 'EMLTN_BYSGMT_NOWAIT'
     self.state.inTransition = True
     self.state.next = 'TXN_SGMT_RESTACK'      
     self.state.hasNext = True
+    self.getTxnSgmtCount()
     return self.state
 
   # -------------------------------------------------------------- #
@@ -162,13 +217,12 @@ class WcResolveUnit(AppResolveUnit):
       prcss = Popen(sysArgs,stdout=PIPE,stderr=PIPE)
       (stdout, stderr) = prcss.communicate()
       if prcss.returncode:
-        raise
-
+        logger.error('returncode: %d, stderr: %s' % (prcss.returncode, stderr))
+        logger.error('please investigate the sas error reported in batchScheduleWC.log')
+        raise BaseException('batchScheduleWC.sas failed, stderr : ' + stderr)
       logger.info('program output : %s' % stdout)
-    except BaseException as ex:
-      logger.error('returncode: %d, stderr: %s' % (prcss.returncode, stderr))
-      logger.error('please investigate the sas error reported in batchScheduleWC.log')
-      raise
+    except OSError as ex:
+      raise BaseException('WcResolveUnit failed, OSError : ' + str(ex))
 
     sgmtPacket = json.loads(stdout)
     self.sgmtCount = sgmtPacket['count']
@@ -181,9 +235,9 @@ class WcResolveUnit(AppResolveUnit):
   def TXN_SGMT_RESTACK(self):
     incItems = ['ciwork','macroLib']
     self.compileSessionVars('restackSgmtOutputWC.sas',incItems=incItems)
+    self.state.next = 'TXN_REPEAT'
     self.restackSgmtOutputAll()
     self.sgmtCount = 0
-    self.state.next = 'TXN_REPEAT'
     return self.state
 
   # -------------------------------------------------------------- #
@@ -198,27 +252,17 @@ class WcResolveUnit(AppResolveUnit):
       prcss = Popen(sysArgs,stdout=PIPE,stderr=PIPE)
       (stdout, stderr) = prcss.communicate()
       if prcss.returncode:
-        raise
-    except BaseException as ex:
-      logger.error('returncode: %d, stderr: %s' % (prcss.returncode, stderr))
-      logger.error('please investigate the sas error reported in restackSgmtOutputWC.log')
-
-  # -------------------------------------------------------------- #
-  # loadProgramMeta
-  # ---------------------------------------------------------------#                                          
-  def loadProgramMeta(self):
-    logger.debug('[START] loadProgramMeta')
-    with open('./wcEmulation.json') as fhr:
-      pmeta = json.load(fhr)
-      self.pmeta = pmeta['Session']
+        logger.error('returncode: %d, stderr: %s' % (prcss.returncode, stderr))
+        logger.error('please investigate the sas error reported in restackSgmtOutputWC.log')
+        raise BaseException('restackSgmtOutputWC.sas failed, stderr : ' + stderr)
+    except OSError as ex:
+      raise BaseException('WcResolveUnit failed, OSError : ' + str(ex))
 
   # -------------------------------------------------------------- #
   # compileSessionVars
   # ---------------------------------------------------------------#
   def compileSessionVars(self, sasfile, incItems=None):
     logger.debug('[START] compileSessionVars')
-    if not self.pmeta:
-      self.loadProgramMeta()
     logger.debug('progLib : ' + self.pmeta['progLib'])
     tmpltName = '%s/tmplt/%s' % (self.pmeta['progLib'], sasfile)
     sasFile = '%s/%s' % (self.pmeta['progLib'], sasfile)
@@ -240,24 +284,34 @@ class WcResolveUnit(AppResolveUnit):
       if not incItems or itemKey in incItems:
         fhw.write(puttext.format(itemKey, metaItem))
 
-    if self.txnNum:
+    if self.txnNum > 0:
       fhw.write(puttext.format('txnIndex', self.txnNum))
       fhw.write(puttext.format('txnCount', self.txnCount))
-    if self.sgmtCount:
+    if self.sgmtCount > 0:
       fhw.write(puttext.format('sgmtCount', self.sgmtCount))
 
   # -------------------------------------------------------------- #
   # putApiRequest
   # ---------------------------------------------------------------#
   def putApiRequest(self):
-    classRef = 'wcEmltnService:WcEmltnBySgmt'
-    args = [self.pmeta['progLib'], self.txnNum]
-    pdata = (self.state.jobId,classRef, json.dumps(args))
-    params = '{"type":"delegate","id":"%s","service":"%s","args":%s}' % pdata
-    data = [('job',params)]
-    apiUrl = 'http://localhost:5000/api/v1/job/%d' % self.sgmtCount
-    response = requests.post(apiUrl,data=data)
-    logger.info('api response ' + response.text)
+    
+    if self.state.transition == 'EMLTN_INPUT_PRVDR':
+      classRef = 'wcEmltnInputPrvdr:WcEmltnInputPrvdr'
+      pdata = (self.state.jobId,classRef)
+      params = '{"type":"delegate","id":"%s","responder":"self","service":"%s","args":[]}' % pdata
+      data = [('job',params)]
+      apiUrl = 'http://localhost:5000/api/v1/job/1'
+      response = requests.post(apiUrl,data=data)
+      logger.info('api response ' + response.text)
+    elif self.state.transition == 'EMLTN_BYSGMT_NOWAIT':      
+      classRef = 'wcEmltnService:WcEmltnBySgmt'
+      args = [self.pmeta['progLib'], self.txnNum]
+      pdata = (self.state.jobId,classRef, json.dumps(args))
+      params = '{"type":"delegate","id":"%s","responder":"listener","service":"%s","args":%s}' % pdata
+      data = [('job',params)]
+      apiUrl = 'http://localhost:5000/api/v1/job/%d' % self.sgmtCount
+      response = requests.post(apiUrl,data=data)
+      logger.info('api response ' + response.text)
 
 # -------------------------------------------------------------- #
 # WcEmltnBySgmt
@@ -331,5 +385,108 @@ class WcEmltnListener(AppListener):
     response = requests.post(apiUrl,data=data)
     logger.info('api response ' + response.text)
 
+# -------------------------------------------------------------- #
+# WcEmailUnit
+# ---------------------------------------------------------------#
+class WcEmailUnit(AppResolveUnit):
+  def __init__(self):
+    self.__dict__['INIT'] = self.INIT
+    self.__dict__['TXN_REPEAT'] = self.TXN_REPEAT
+    self.__dict__['TXN_SGMT_REPEAT'] = self.TXN_SGMT_REPEAT
+    self.__dict__['TXN_SGMT_RESTACK'] = self.TXN_SGMT_RESTACK
+    self._from = 'CI workerscomp emulation team <Pricing-Implementation-CI-Fasttracks@suncorp.com.au>'
+    self.pmeta = None
+    self.state = None
+
+  # -------------------------------------------------------------- #
+  # _START
+  # ---------------------------------------------------------------#  
+  def _START(self):
+    self._to = self.pmeta['userEmail']
+    
+  # -------------------------------------------------------------- #
+  # TXN_SGMT_RESTACK
+  # ---------------------------------------------------------------#  
+  def sendMail(self, subject, body):
+
+    msg = MIMEText(body, 'plain')
+    msg['Subject'] = subject
+    msg['From'] = self._from
+    msg['To'] = self._to
+
+    smtp = smtplib.SMTP('smlsmtp')
+    smtp.sendmail(self._from, [self._to], msg.as_string())
+    smtp.quit()
+
+  # -------------------------------------------------------------- #
+  # INIT
+  # ---------------------------------------------------------------#
+  def INIT(self, context):
+    
+    subject, body = self.getEmailBody(context)
+    script = 'wcInputXml2Sas'
+    if context == 'ERROR':
+      body = body % (script, script, self.pmeta['progLib'])
+    self.sendMail(subject, body)
+
+  # -------------------------------------------------------------- #
+  # TXN_REPEAT
+  # ---------------------------------------------------------------#
+  def TXN_REPEAT(self, context):
+
+    if self.state.next == 'TXN_REPEAT':
+      script = 'batchTxnScheduleWC'
+    elif self.state.next == 'COMPLETE':
+      script = 'restackTxnOutputWC'
+    subject, body = self.getEmailBody(context)
+    if context == 'ERROR':
+      body = body % (script, script, self.pmeta['progLib'])
+    self.sendMail(subject, body)
+    
+  # -------------------------------------------------------------- #
+  # TXN_SGMT_REPEAT
+  # ---------------------------------------------------------------#
+  def TXN_SGMT_REPEAT(self, context):
+    
+    subject, body = self.getEmailBody(context)
+    script = 'batchScheduleWC'
+    if context == 'ERROR':
+      body = body % (script, script, self.pmeta['progLib'])
+    self.sendMail(subject, body)
+
+  # -------------------------------------------------------------- #
+  # TXN_SGMT_RESTACK
+  # ---------------------------------------------------------------#
+  def TXN_SGMT_RESTACK(self, context):
+
+    subject, body = self.getEmailBody(context)
+    script = 'restackSgmtOutputWC'
+    if context == 'ERROR':
+      body = body % (script, script, self.pmeta['progLib'])
+    self.sendMail(subject, body)
+     
+  # -------------------------------------------------------------- #
+  # getEmailBody
+  # ---------------------------------------------------------------#
+  def getEmailBody(self, context):
+
+    errorBody = '''
+Hi CI workerscomp team,
+
+CI workerscomp %s.sas has errored :<
+
+Please inspect %s.log to get the error details
+
+Your workerscomp emulation log region is : %s/log
+
+Then contact us for further investigation
+
+Thanks and Regards,
+CI workerscomp emulation team
+'''
+    if context == 'ERROR':
+      subject = 'ci workerscomp emulation has errored :<'
+      return (subject, errorBody)
+    return ('','')
 
 
