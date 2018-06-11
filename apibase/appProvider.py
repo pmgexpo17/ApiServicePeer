@@ -69,16 +69,23 @@ class AppProvider(object):
   def addJob(self, jobId, params):
 
     args = [jobId] + params.args
-    self.scheduler.add_job('apibase:dispatch',id=jobId,args=args,kwargs=params.kwargs)
+    self.scheduler.add_job('apibase:dispatch',id=jobId,args=args,kwargs=params.kwargs,misfire_grace_time=3600)
     return jobId
 
   # -------------------------------------------------------------- #
   # addNewJob
   # ---------------------------------------------------------------#
-  def addNewJob(self, params):
+  def addNewJob(self, params, jobId):
 
     module, className = self.registry.getClassName(params.service)
-    jobId = str(uuid.uuid4())
+    if params.type == 'delegate':
+      # must be an AppDelegate derivative, leveldb and jobId params are fixed by protocol
+      delegate = getattr(module, className)(self.db, jobId=jobId)
+      _jobId = str(uuid.uuid4())
+      self._job[_jobId] = delegate
+      self.addJob(_jobId, params)
+      return _jobId 
+      
     # must be an AppDirector derivative, leveldb and jobId params are fixed by protocol
     director = getattr(module, className)(self.db, jobId)
     # must be an AppListener derivative, leveldb param is fixed by protocol
@@ -95,7 +102,7 @@ class AppProvider(object):
   # -------------------------------------------------------------- #
   # promote
   # ---------------------------------------------------------------#
-  def promote(self, _params, jobCount=None):
+  def promote(self, _params, jobId=None, jobCount=None):
 
     params = Params(_params)
     with self.lock:
@@ -110,12 +117,18 @@ class AppProvider(object):
         except KeyError:
           raise BaseException('jobId not found in job register : ' + params.id)
         if params.type == 'delegate':
-          # a live director program has dispatched a delegate
-          return self.addJobGroup(params, jobCount)
+          if params.responder == 'listener':
+            # a live director program has dispatched a bound delegate
+            return self.addJobGroup(params, jobCount)            
+          elif params.responder == 'self':
+            # a live director program has dispatched an unbound delegate
+            if not jobId:
+              jobId = params.id
+            return self.addNewJob(params,jobId)
         # a live director program is promoted, ie, state machine is promoted
         return self.addJob(params.id, params)
       # a director program is submitted for scheduling
-      return self.addNewJob(params)    
+      return self.addNewJob(params,jobId)
   
 # -------------------------------------------------------------- #
 # ServiceRegister
@@ -169,5 +182,5 @@ class Params(object):
     try:
       self.__dict__.update(params)
     except:
-      raise BaseException('json decode error, bad params')
- 
+      raise BaseException('json decode error, bad params')     
+
