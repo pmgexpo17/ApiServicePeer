@@ -7,24 +7,40 @@ logger = logging.getLogger('apscheduler')
 # ---------------------------------------------------------------#
 class AppDirector(object):
 
-  def __init__(self):
-    self.state = AppState()
+  def __init__(self, leveldb, jobId):
+    self._leveldb = leveldb
+    self.state = AppState(jobId)
     self.resolve = None
+    self.runMode = 'INIT'
         
   # run wrkcmp emulation by apScheduler
   def __call__(self, *argv, **kwargs):
 
     with self.state.lock:
-      self.runApp(*argv, **kwargs)
+      if self.runMode == 'INIT':
+        try:
+          self._START()
+          self.runMode = 'STARTED'
+        except BaseException as ex:
+          self.state.complete = True
+          self.runMode = 'FAILED'
+          logger.error('_START failed : ' + str(ex))
+          return
+      try:
+        self.runApp(*argv, **kwargs)
+      except Exception as ex:
+        self.state.complete = True
+        self.runMode = 'FAILED'
+        logger.error('runApp failed : ' + str(ex))
 
   # -------------------------------------------------------------- #
   # runApp
   # ---------------------------------------------------------------#
   def runApp(self, signal=None):
 
-    try:
+    try:      
       state = self.state
-      if state.inTransition and signal:
+      if state.inTransition and signal is not None:
         logger.info('received signal : ' + str(signal))
         state = self.advance(signal)
         if state.inTransition:
@@ -40,8 +56,11 @@ class AppDirector(object):
           break  
         state = self.advance()
         logger.info('next state : ' + self.state.current)
-    except Exception as ex:
-      raise BaseException('runApp failed : ' + str(ex))
+    except BaseException as ex:
+      self.mailer[state.current]('ERROR')
+      self.state.complete = True
+      self.runMode = 'FAILED'
+      logger.error('runApp failed : ' + str(ex))
 
   # -------------------------------------------------------------- #
   # advance
@@ -60,7 +79,8 @@ class AppDirector(object):
 # ---------------------------------------------------------------#
 class AppState(object):
 
-  def __init__(self):
+  def __init__(self, jobId=None):
+    self.jobId = jobId
     self.current = 'INIT'
     self.next = 'INIT'
     self.transition = 'NA'
@@ -109,5 +129,7 @@ class AppListener(object):
 # ---------------------------------------------------------------#
 class AppDelegate(object):
 
-  def __init__(self, leveldb):
+  def __init__(self, leveldb, jobId=None, removeMeta=False):
     self._leveldb = leveldb
+    self.jobId = jobId
+    self.removeMeta = removeMeta
