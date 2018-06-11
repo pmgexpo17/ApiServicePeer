@@ -1,0 +1,37 @@
+pmeta={
+	"Program" : {
+		"name" : "WcEmltnService", 
+		"description" : "Workerscomp Emulation",
+		"logLevel" : "INFO"
+	},
+	"Global" : {
+	  "appScope" : "DEV",
+	  "ciwork" : "/data/projectarea/wcEmltnService/saswork/1803",
+		"logLevel" : "ERROR",
+    "macroLib" : "/data/BASESAS/saslib/ci/emulation/wrkcmp/dev1/sasautos",
+		"progLib" : "/data/projectarea/wcEmltnService/saslib",
+	  "stashHost" : "https://bitbucket.int.corp.sun/projects",
+	  "stashBase" : "PI/repos/ci/browse/emulation/EmulatorCodeWC",
+	  "userEmail" : "peter.mcgill@suncorp.com.au"
+	},
+	"WcEmltnDirector" : {
+	  "codeLib" : "/data/BASESAS/saslib/ci/emulation/wrkcmp/dev1/calcorder",
+	  "inputSrc" : "final_wc_201803",
+	  "progLib" : "/data/projectarea/wcEmltnService/saslib",
+	  "program" : "MAIN:ALL:ADDTNL:ALL:EXTNSN:ALL:ADDTNL:ALL",
+	  "rateLib" : "/data/BASE/rateslib/ci/emulation/wrkcmp/dev1",
+	  "reRun" : "N",
+	  "sgmtSize" : "4000",
+    "globals" : ["*"]
+	},
+	"WcInputXml2Sas" : {
+    "inputTxnFilter" : "LAST_INF_BY_PCID",
+    "inputXmlBase" : "/data/interface/inbound/wcEmulation/inputXml",
+    "inputXmlPath" : "refactor/WC_201803",
+    "mountPath" : "/lan/u352425/wcEmltnService",
+    "pmovDsId" : "1803",
+    "pmovLib" : "/data/projectarea/wcEmltnService/saswork/pmov",
+    "runMode" : 1,
+    "globals" : ["*"]
+	}
+}
