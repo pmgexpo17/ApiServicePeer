@@ -7,6 +7,11 @@
 			  "WcEmltnBySgmt",
         "WcEmltnListener"
 		  ]
+	  },
+	  {"name":"wcEmltnInputPrvdr",
+		  "fromList":[
+        "WcEmltnInputPrvdr"
+		  ]
 	  }
   ]
 }
