@@ -19,17 +19,13 @@ def dispatch(jobId, *argv, **kwargs):
     delegate.listener
   except AttributeError:
     # only stateful jobs are retained
-    try:
-      if delegate.removeMeta:
-        removeMeta(jobId)
-    except AttributeError:
-      pass
+    removeMeta(jobId)
     with appPrvdr.lock:
       del(appPrvdr._job[jobId])
     return
   if delegate.state.complete:
     logtxt = 'director[%s] is complete, removing it now ...'
-    if delegate.runMode == 'FAILED':
+    if delegate.state.failed:
       logtxt = 'director[%s] has failed, removing it now ...'
     logger.info(logtxt, delegate.state.jobId)
     removeMeta(jobId)
@@ -42,3 +38,4 @@ def removeMeta(jobId):
 
   dbKey = 'PMETA|' + jobId
   appPrvdr.db.Delete(dbKey)
+  
