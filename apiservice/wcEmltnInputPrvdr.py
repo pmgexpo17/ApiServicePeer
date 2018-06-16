@@ -10,8 +10,8 @@ from subprocess import Popen, PIPE
 # ---------------------------------------------------------------#
 class WcEmltnInputPrvdr(AppDelegate):
 
-  def __init__(self, leveldb, **kwargs):
-    super(WcEmltnInputPrvdr,self).__init__(leveldb, **kwargs)
+  def __init__(self, leveldb, jobId):
+    super(WcEmltnInputPrvdr,self).__init__(leveldb, jobId=jobId)
     self.pmeta = None
 
 	# -------------------------------------------------------------- #
@@ -21,9 +21,7 @@ class WcEmltnInputPrvdr(AppDelegate):
 
     try:
       self.runApp()
-      self.cleanout();
-    except (BaseException, Exception):
-      self.cleanout();
+    except Exception as ex:
       self.putApiRequest(500)
       
 	# -------------------------------------------------------------- #
@@ -32,100 +30,130 @@ class WcEmltnInputPrvdr(AppDelegate):
   def runApp(self):
 
     self.loadProgramMeta()
-    self.putXmlFileInbound()
+    self.getPmovDataFromS3()    
+    self.landriveMount()
+    self.checkInputFile()
     self.compileSessionVars('wcInputXml2Sas.sas')
     sasPrgm = '%s/wcInputXml2Sas.sas' % self.pmeta['progLib']
     logfile = '%s/log/wcInputXml2Sas.log' % self.pmeta['progLib']
     sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
 
     logger.info('run wcInputXml2Sas.sas in subprocess ...')
-    try :
-      prcss = Popen(sysArgs,stdout=PIPE,stderr=PIPE)
-      (stdout, stderr) = prcss.communicate()
-      if prcss.returncode:
-        logger.error('returncode: %d, stderr: %s' % (prcss.returncode, stderr))
-        logger.error('please investigate the sas error reported in wcInputXml2Sas.log')
-        raise BaseException('wcInputXml2Sas.sas failed, stderr : ' + stderr)
-    except OSError as ex:
-      raise BaseException('WcEmltnInputPrvdr failed, OSError : ' + str(ex))
+    self.runProcess(sysArgs)
     self.putApiRequest(201)
 
 	# -------------------------------------------------------------- #
-	# cleanout
+	# convertXmlToSas
 	# ---------------------------------------------------------------#
-  def cleanout(self):
+  def convertXmlToSas(self):
+
+    env = Environment(loader=PackageLoader('apiservice', 'xmlToSas'),trim_blocks=True)
+    sasPrgm = '%s/get.sas' % self.pmeta['progLib']
+    logfile = '%s/log/wcInputXml2Sas.log' % self.pmeta['progLib']
+    sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
     
-    sysArgs = ['rm', '-rf', self.pmeta['inputXmlBase']]
-    prcss1 = Popen(sysArgs, stderr=PIPE)
-    prcss1.communicate()    
+	# -------------------------------------------------------------- #
+	# getPmovDataFromS3
+	# ---------------------------------------------------------------#
+  def getPmovDataFromS3(self):
+
+    pmovDir = 'pmov'
+    if self.pmeta['ciwork'][-1] != '/':
+      pmovDir = '/pmov'
+    pmovLib = self.pmeta['ciwork'] + pmovDir
+    self.pmeta['pmovLib'] = pmovLib
     
-  # -------------------------------------------------------------- #
-  # putXmlFileInbound
-  # ---------------------------------------------------------------#                                          
-  def putXmlFileInbound(self):
-    
-    prcss1 = Popen(['mount'], stdout=PIPE)
-    sysArgs = ['grep', self.pmeta['mountPath']]
-    prcss2 = Popen(sysArgs, stdin=prcss1.stdout,stdout=PIPE,stderr=PIPE)
-    prcss1.stdout.close()
-    (stdout, stderr) = prcss2.communicate()
-    if stdout:
-      logger.info('wcEmulation service local base is mounted : ' + self.pmeta['mountPath'])
+    if self.pmeta["inputTxnFilter"] != 'LAST_INF_BY_PCID':
+      return
+    try:      
+      pmovDsId = datetime.datetime.strptime(self.pmeta['pmovDsId'],'%y%m')
+    except ValueError:
+      raise Exception('pmov dataset id not valid : ' + self.pmeta['pmovDsId'])
+
+    if not os.path.exists(pmovLib):
+      self.runProcess(['mkdir','-p',pmovLib])
     else:
-      errmsg = 'wcEmulation service local base is not mounted : ' + self.pmeta['mountPath']
-      raise BaseException(errmsg)
-    inputXmlFile = self.pmeta['inputXmlPath'].split('/')[-1]
-    self.srcXmlPath = '%s/%s.txt' % (self.pmeta['mountPath'], self.pmeta['inputXmlPath'])
-    sysArgs = ['ls', self.srcXmlPath]
-    prcss1 = Popen(sysArgs, stdout=PIPE,stderr=PIPE)
-    (stdout, stderr) = prcss1.communicate()
-    if stdout:
-      logger.info( 'wcEmulation inputXmlPath is valid')
-    else:
-      errmsg = 'wcEmulation inputXmlPath is not valid : ' +  self.srcXmlPath
-      raise BaseException(errmsg)
-    #inputXmlPath = '%s/%s.txt.gz' %  (self.pmeta['inputXmlBase'], inputXmlFile)
-    #gzipXmlFh = open(inputXmlPath,'w')
-    #sysArgs = ['gzip', '-c', self.inputXmlPath]
-    #prcss1 = Popen(sysArgs, stdout=gzipXmlFh, stderr=PIPE)
-    inputXmlBase = '%s/%s' % (self.pmeta['inputXmlBase'], self.jobId)
-    sysArgs = ['mkdir', inputXmlBase]
-    prcss1 = Popen(sysArgs, stderr=PIPE)
-    (stdout, stderr) = prcss1.communicate()    
-    if prcss1.returncode:
-      errmsg = 'failed to make input xml storage : ' + inputXmlBase
-      raise BaseException(errmsg)
-    inputXmlPath = '%s/%s.txt' %  (inputXmlBase, inputXmlFile)
-    sysArgs = ['cp', self.srcXmlPath, inputXmlPath]
-    prcss1 = Popen(sysArgs, stderr=PIPE)
-    (stdout, stderr) = prcss1.communicate()    
-    if prcss1.returncode:
-      errmsg = 'failed to copy inputXmlFile to inbound : ' + stderr
-      raise BaseException(errmsg)
-    #gzipXmlFh.close()
-    sysArgs = ['chmod','664',inputXmlPath]
-    prcss1 = Popen(sysArgs, stdout=PIPE,stderr=PIPE)
-    (stdout, stderr) = prcss1.communicate()
-    if prcss1.returncode:
-      errmsg = 'failed to chmod 664 on inbound/inputXmlFile : ' + stderr
-      raise BaseException(errmsg)
-    self.pmeta['inputXmlFile'] = inputXmlFile
-    self.pmeta['inputXmlBase'] = inputXmlBase
+      pmovDsName = 'pmov%s_combined.sas7bdat' % self.pmeta['pmovDsId']
+      pmovDsPath = '%s/%s' % (pmovLib, pmovDsName)
+      if os.path.exists(pmovDsPath):        
+        lastPutStamp = os.path.getmtime(pmovDsPath)
+        lastPut = datetime.datetime.fromtimestamp(lastPutStamp)
+        today = datetime.datetime.today()
+        if lastPut.day == today.day and lastPut.month == today.month and lastPut.year == today.year:
+          logger.info(pmovDsName + ' has been transfered already today')
+          logger.info('Note : wcEmltnService S3 transfer min period = daily')
+          return
+
+    pmovS3Dir = pmovDsId.strftime('%Y%m')
+    if self.pmeta['pmovS3Base'][-1] != '/':
+      pmovS3Dir = '/' + pmovS3Dir
+    self.pmeta['pmovS3Repo'] += pmovS3Dir
+    incItems = ['macroLib','pmovLib','pmovS3Repo','pmovDsId']
+    self.compileSessionVars('getPmovFromS3.sas',incItems=incItems)
+    
+    sasPrgm = '%s/getPmovFromS3.sas' % self.pmeta['progLib']
+    logfile = '%s/log/getPmovFromS3.log' % self.pmeta['progLib']
+    sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
+        
+    logger.info('run getPmovFromS3.sas in subprocess ...')
+    self.runProcess(sysArgs)
 
   # -------------------------------------------------------------- #
-  # mountLocalBase
+  # landriveMount
   # ---------------------------------------------------------------#                                          
-  def mountLocalBase(self):
+  def landriveMount(self):
     
-    cifsMeta = os.environ['HOME'] + '/.cifsenv_wcemltn'
-    with open(cifsMeta,'w') as fhw:
-      fhw.write('ADUSER='+ os.environ['USER'])
-      fhw.write("DFSPATH='%s'" % self.pmeta['localBase'])
-      fhw.write("MOUNTINST='/data/wcEmltnService'")
+    logger.info('[START] landriveMount')
+    self.mountPath = 'webapi/wcemltn/session'
+    logger.info('landrive mount path : ' + self.mountPath)
+    unMounted = self.runProcess(['grep','-w',self.mountPath,'/etc/mtab'],returnRc=True)
+    if not unMounted:
+      logger.info('landrive is already mounted : ' + self.mountPath)
+      return
+
+    logger.info('wcemltn service base : ' + self.pmeta['localBase'])
+    cifsEnv = os.environ['HOME'] + '/.wcemltn/cifs_env'
+    with open(cifsEnv,'w') as fhw:
+      fhw.write('ADUSER=%s\n' % os.environ['USER'])
+      fhw.write("DFSPATH='%s'\n" % self.pmeta['localBase'])
+      fhw.write('MOUNTINST=%s\n' % self.mountPath)
     
-    sysArgs = ['sudo','/usr/local/bin/landrive.sh','--mountcifs','--cifsenv','./cifsenv_wcemltn','--credentials','.landrive']    
-    prcss = Popen(sysArgs, stdout=PIPE,stderr=PIPE,cwd=os.environ['HOME'])		
-    (stdout, stderr) = prcss.communicate()
+    credentials = os.environ['HOME'] + '/.landrive'
+    runDir = os.environ['HOME'] + '/.wcemltn'
+    sysArgs = ['sudo','landrive.sh','--mountcifs','--cifsenv','cifs_env','--credentials',credentials]
+    self.runProcess(sysArgs,cwd=runDir)
+
+    sysArgs = ['grep','-w',self.mountPath,'/etc/mtab']
+    unMounted = self.runProcess(['grep','-w',self.mountPath,'/etc/mtab'],returnRc=True)
+    if unMounted:
+      errmsg = 'failed to mount landrive : ' + self.mountPath
+      logger.error(errmsg)
+      raise Exception(errmsg)
+
+  # -------------------------------------------------------------- #
+  # checkInputFile
+  # ---------------------------------------------------------------#                                          
+  def checkInputFile(self):
+    logger.info('[START] checkInputFile')
+
+    linkPath = self.pmeta['linkBase'] + '/session'
+    logger.info('landrive symlink : ' + linkPath)
+    self.landrive = '/lan/%s/%s' % (os.environ['USER'], self.mountPath)
+    logger.info('landrive : ' + self.landrive)
+    if not os.path.exists(linkPath):
+      self.runProcess(['ln','-s', self.landrive, linkPath])
+    self.pmeta['inputXmlBase'] = linkPath + '/inputXml'
+
+    inputXmlPath = self.pmeta['inputXmlBase'] + '/' + self.pmeta['inputXmlFile']
+    try:
+      self.runProcess(['ls', inputXmlPath])
+    except Exception:
+      errmsg = 'wcEmulation inputXmlFile is not found : ' +  inputXmlPath
+      logger.error(errmsg)
+      raise Exception(errmsg)
+    else:
+      logger.info('wcEmulation inputXmlFile : ' + inputXmlPath)
+    logger.info('[END] checkInputFile')
     
   # -------------------------------------------------------------- #
   # loadProgramMeta
@@ -136,7 +164,7 @@ class WcEmltnInputPrvdr(AppDelegate):
     try:
       _pmeta = self._leveldb.Get(dbKey)
     except KeyError:
-      raise BaseException('EEEOWWW! pmeta json document not found : ' + dbKey)
+      raise Exception('EEEOWWW! pmeta json document not found : ' + dbKey)
     logger.info('dbKey : ' + dbKey)
     pmeta = json.loads(_pmeta)
     self.pmeta = pmeta['WcInputXml2Sas']
@@ -154,11 +182,12 @@ class WcEmltnInputPrvdr(AppDelegate):
   # ---------------------------------------------------------------#
   def compileSessionVars(self, sasfile, incItems=None):
     logger.debug('[START] compileSessionVars')
-    try :
-      self.pmeta['inputXmlFile']
+    dbKey = 'TSXREF|' + self.jobId
+    try:
+      timestamp = self._leveldb.Get(dbKey)
     except KeyError:
-      inputXmlFile = self.pmeta['inputXmlPath'].split('/')[-1]
-      self.pmeta['inputXmlFile'] = inputXmlFile
+      raise Exception('timestamp job xref id not found for job : %s' % self.jobId) 
+    self.pmeta['ciwork'] += '/WC%s' % timestamp
     logger.debug('progLib : ' + self.pmeta['progLib'])
     tmpltName = '%s/tmplt/%s' % (self.pmeta['progLib'], sasfile)
     sasFile = '%s/%s' % (self.pmeta['progLib'], sasfile)
