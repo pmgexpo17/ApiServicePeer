@@ -1,14 +1,51 @@
-import logging
 from threading import RLock
+from subprocess import Popen, PIPE
+import logging
+import os
 
 logger = logging.getLogger('apscheduler')
 # -------------------------------------------------------------- #
+# AppDelegate
+# ---------------------------------------------------------------#
+class AppDelegate(object):
+
+  def __init__(self, leveldb, jobId=None):
+    self._leveldb = leveldb
+    self.jobId = jobId
+
+  # ------------------------------------------------------------ #
+  # runProcess
+  # -------------------------------------------------------------#
+  def runProcess(self, sysArgs, returnRc=False, cwd=None):
+    
+    try:
+      scriptname = self.__class__.__name__
+      if cwd:
+        prcss = Popen(sysArgs,stdout=PIPE,stderr=PIPE,cwd=cwd)
+      else:
+        prcss = Popen(sysArgs,stdout=PIPE,stderr=PIPE)
+      (stdout, stderr) = prcss.communicate()
+      if returnRc:
+        return prcss.returncode
+      if prcss.returncode:
+        if not stderr:
+          stderr = ' '.join(sysArgs)
+        errmsg = '%s syscmd failed : %s' % (scriptname, stderr)
+        logger.error(errmsg)
+        raise Exception(errmsg)
+      return stdout
+    except OSError as ex:
+      errmsg = '%s syscmd failed : %s' % (scriptname, str(ex))
+      logger.error(errmsg)
+      raise Exception(errmsg)
+
+# -------------------------------------------------------------- #
 # AppDirector
 # ---------------------------------------------------------------#
-class AppDirector(object):
+class AppDirector(AppDelegate):
 
   def __init__(self, leveldb, jobId):
-    self._leveldb = leveldb
+    super(AppDirector,self).__init__(leveldb, jobId=jobId)
     self.state = AppState(jobId)
     self.resolve = None
     self.runMode = 'INIT'
@@ -19,18 +56,18 @@ class AppDirector(object):
     with self.state.lock:
       if self.runMode == 'INIT':
         try:
-          self._START()
+          self._start()
           self.runMode = 'STARTED'
-        except BaseException as ex:
+        except Exception as ex:
           self.state.complete = True
-          self.runMode = 'FAILED'
-          logger.error('_START failed : ' + str(ex))
+          self.state.failed = True
+          logger.error('_start failed : ' + str(ex))
           return
       try:
         self.runApp(*argv, **kwargs)
       except Exception as ex:
         self.state.complete = True
-        self.runMode = 'FAILED'
+        self.state.failed = True        
         logger.error('runApp failed : ' + str(ex))
 
   # -------------------------------------------------------------- #
@@ -41,7 +78,7 @@ class AppDirector(object):
     try:      
       state = self.state
       if state.inTransition and signal is not None:
-        logger.info('received signal : ' + str(signal))
+        logger.info('received signal : %d' % signal)
         state = self.advance(signal)
         if state.inTransition:
           # multiple signals required for successful state transition 
@@ -56,10 +93,10 @@ class AppDirector(object):
           break  
         state = self.advance()
         logger.info('next state : ' + self.state.current)
-    except BaseException as ex:
+    except Exception as ex:
       self.mailer[state.current]('ERROR')
       self.state.complete = True
-      self.runMode = 'FAILED'
+      self.state.failed = True
       logger.error('runApp failed : ' + str(ex))
 
   # -------------------------------------------------------------- #
@@ -87,6 +124,7 @@ class AppState(object):
     self.inTransition = False
     self.hasNext = False
     self.complete = False
+    self.failed = True
     self.lock = RLock()
 
 # -------------------------------------------------------------- #
@@ -125,11 +163,11 @@ class AppListener(object):
     self._leveldb = leveldb
 
 # -------------------------------------------------------------- #
-# AppDelegate
+# ApiException
 # ---------------------------------------------------------------#
-class AppDelegate(object):
+class ApiException(Exception):
+  def __init__(self, message):
+    self.message = message
 
-  def __init__(self, leveldb, jobId=None, removeMeta=False):
-    self._leveldb = leveldb
-    self.jobId = jobId
-    self.removeMeta = removeMeta
+  def __str__(self):
+    return self.message
