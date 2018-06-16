@@ -1,7 +1,7 @@
 from apiservice import AppDirector, AppState, AppResolveUnit, AppListener, AppDelegate, logger
+import datetime
 from email.mime.text import MIMEText
 from threading import RLock
-from subprocess import Popen, PIPE
 import logging
 import json
 import os, sys, time
@@ -25,14 +25,14 @@ class WcEmltnDirector(AppDirector):
     
   # -------------------------------------------------------------- #
   # getServiceName
-  # ---------------------------------------------------------------#                                                                                                          
+  # ---------------------------------------------------------------#
   def getServiceName(self):
     return self.serviceName
 
   # -------------------------------------------------------------- #
   # _start
   # ---------------------------------------------------------------#                                          
-  def _START(self):
+  def _start(self):
     logger.debug('[START] loadProgramMeta')
     _pmeta = self.getProgramMeta()
     pmeta = _pmeta['WcEmltnDirector']
@@ -44,9 +44,12 @@ class WcEmltnDirector(AppDirector):
       for item in _globals:
         pmeta[item] = _pmeta['Global'][item]    
     self.resolve.pmeta = pmeta
-    self.resolve._START()
+    self.resolve._start()
     self.mailer.pmeta = pmeta
-    self.mailer._START()
+    self.mailer._start()
+    dbKey = 'TSXREF|' + self.jobId
+    timestamp = datetime.datetime.now().strftime('%y%m%d%H%M%S')
+    self._leveldb.Put(dbKey, timestamp)
 
   # -------------------------------------------------------------- #
   # getProgramMeta
@@ -57,7 +60,7 @@ class WcEmltnDirector(AppDirector):
     try:
       _pmeta = self._leveldb.Get(dbKey)
     except KeyError:
-      raise BaseException('EEEOWWW! pmeta json document not found : ' + dbKey)
+      raise Exception('EEEOWWW! pmeta json document not found : {}'.format(dbKey))
     return json.loads(_pmeta)
 
   # -------------------------------------------------------------- #
@@ -65,13 +68,13 @@ class WcEmltnDirector(AppDirector):
   # ---------------------------------------------------------------#                                          
   def advance(self, signal=None):
     if self.state.transition == 'EMLTN_INPUT_PRVDR':
-      # signal = the http status code of the listener promote method
+      # signal = the http status code of the companion promote method
       if signal == 201:
         logger.info('state transition is resolved, advancing ...')
         self.state.transition = 'NA'
         self.state.inTransition = False
       else:
-        raise BaseException('WcEmltnInputPrvdr server process failed, rc : %d' % signal)
+        raise Exception('WcEmltnInputPrvdr server process failed, rc : %d' % signal)
     elif self.state.transition == 'EMLTN_BYSGMT_NOWAIT':
       # signal = the http status code of the listener promote method
       if signal == 201:
@@ -79,7 +82,7 @@ class WcEmltnDirector(AppDirector):
         self.state.transition = 'NA'
         self.state.inTransition = False
       else:
-        raise BaseException('WcEmltnBySgmt server process failed, rc : %d' % signal)
+        raise Exception('WcEmltnBySgmt server process failed, rc : %d' % signal)
     self.state.current = self.state.next
     return self.state
 
@@ -108,9 +111,9 @@ class WcResolveUnit(AppResolveUnit):
     self.txnCount = 0
 
   # -------------------------------------------------------------- #
-  # _START
+  # _start
   # ---------------------------------------------------------------#  
-  def _START(self):
+  def _start(self):
     pass    
   # -------------------------------------------------------------- #
   # INIT - evalTxnCount
@@ -131,19 +134,11 @@ class WcResolveUnit(AppResolveUnit):
     sasPrgm = '%s/batchTxnScheduleWC.sas' % self.pmeta['progLib']
     logfile = '%s/log/batchTxnScheduleWC.log' % self.pmeta['progLib']
     sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
+    
     logger.info('run batchTxnScheduleWC.sas in subprocess ...')
-
-    try :
-      prcss = Popen(sysArgs,stdout=PIPE,stderr=PIPE)
-      (stdout, stderr) = prcss.communicate()
-      if prcss.returncode:
-        logger.error('returncode: %d, stderr: %s' % (prcss.returncode, stderr))
-        logger.error('please investigate the sas error reported in batchTxnScheduleWC.log')
-        raise BaseException('batchTxnScheduleWC.sas failed, stderr : ' + stderr)
-      logger.info('program output : %s' % stdout)
-    except OSError as ex:
-      raise BaseException('WcResolveUnit failed, OSError : ' + str(ex))
-
+    stdout = self.runProcess(sysArgs)
+    logger.info('program output : %s' % stdout)
+    
     txnPacket = json.loads(stdout)
     self.txnCount = txnPacket['count']
     self.txnNum = 0
@@ -180,16 +175,9 @@ class WcResolveUnit(AppResolveUnit):
     sasPrgm = '%s/restackTxnOutputWC.sas' % self.pmeta['progLib']
     logfile = '%s/log/restackTxnOutputWC.log' % self.pmeta['progLib']
     sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
+
     logger.info('run restackTxnOutputWC.sas in subprocess ...')
-    try :
-      prcss = Popen(sysArgs,stdout=PIPE,stderr=PIPE)
-      (stdout, stderr) = prcss.communicate()
-      if prcss.returncode:
-        logger.error('returncode: %d, stderr: %s' % (prcss.returncode, stderr))
-        logger.error('please investigate the sas error reported in restackTxnOutputWC.log')
-        raise BaseException('restackTxnOutputWC.sas failed, stderr : ' + stderr)
-    except OSError as ex:
-      raise BaseException('WcResolveUnit failed, OSError : ' + str(ex))
+    self.runProcess(sysArgs)
 
   # -------------------------------------------------------------- #
   # TXN_SGMT_REPEAT - evalTxnSgmtRepeat
@@ -212,17 +200,10 @@ class WcResolveUnit(AppResolveUnit):
     sasPrgm = '%s/batchScheduleWC.sas' % self.pmeta['progLib']
     logfile = '%s/log/batchScheduleWC.log' % self.pmeta['progLib']
     sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
+    
     logger.info('run batchScheduleWC.sas in subprocess, txn[%d] ...' % self.txnNum)
-    try :
-      prcss = Popen(sysArgs,stdout=PIPE,stderr=PIPE)
-      (stdout, stderr) = prcss.communicate()
-      if prcss.returncode:
-        logger.error('returncode: %d, stderr: %s' % (prcss.returncode, stderr))
-        logger.error('please investigate the sas error reported in batchScheduleWC.log')
-        raise BaseException('batchScheduleWC.sas failed, stderr : ' + stderr)
-      logger.info('program output : %s' % stdout)
-    except OSError as ex:
-      raise BaseException('WcResolveUnit failed, OSError : ' + str(ex))
+    stdout = self.runProcess(sysArgs)
+    logger.info('program output : %s' % stdout)
 
     sgmtPacket = json.loads(stdout)
     self.sgmtCount = sgmtPacket['count']
@@ -247,16 +228,9 @@ class WcResolveUnit(AppResolveUnit):
     sasPrgm = '%s/restackSgmtOutputWC.sas' % self.pmeta['progLib']
     logfile = '%s/log/restackSgmtOutputWC_txn%d.log' % (self.pmeta['progLib'], self.txnNum)
     sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
+    
     logger.info('run restackSgmtOutputWC.sas in subprocess txn[%d] ...' % self.txnNum)
-    try :
-      prcss = Popen(sysArgs,stdout=PIPE,stderr=PIPE)
-      (stdout, stderr) = prcss.communicate()
-      if prcss.returncode:
-        logger.error('returncode: %d, stderr: %s' % (prcss.returncode, stderr))
-        logger.error('please investigate the sas error reported in restackSgmtOutputWC.log')
-        raise BaseException('restackSgmtOutputWC.sas failed, stderr : ' + stderr)
-    except OSError as ex:
-      raise BaseException('WcResolveUnit failed, OSError : ' + str(ex))
+    self.runProcess(sysArgs)
 
   # -------------------------------------------------------------- #
   # compileSessionVars
@@ -328,15 +302,9 @@ class WcEmltnBySgmt(AppDelegate):
     sasPrgm = '%s/batchEmulatorWC_txn%d_s%d.sas' % (progLib, txnNum, sgmtNum)
     logfile = '%s/log/batchEmulatorWC_txn%d_s%d.log' % (progLib, txnNum, sgmtNum)
     sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
+
     logger.info('run batchEmulatorWC_txn%d_s%d.sas in subprocess ...' % (txnNum, sgmtNum))                                  
-    try :
-      prcss = Popen(sysArgs,stdout=PIPE,stderr=PIPE)
-      (stdout, stderr) = prcss.communicate()
-    except BaseException as ex:
-      logger.error('failed to create subprocess : %s' % str(ex))
-    if prcss.returncode:
-      logger.error('returncode: %d, stderr: %s' % (prcss.returncode, stderr))
-      logger.error('please investigate the sas error reported in batchEmulatorWC_txn%d_s%d.log' % (txnNum, sgmtNum))
+    self.runProcess(sysArgs)
 
 # -------------------------------------------------------------- #
 # WcEmltnListener
@@ -399,9 +367,9 @@ class WcEmailUnit(AppResolveUnit):
     self.state = None
 
   # -------------------------------------------------------------- #
-  # _START
+  # _start
   # ---------------------------------------------------------------#  
-  def _START(self):
+  def _start(self):
     self._to = self.pmeta['userEmail']
     
   # -------------------------------------------------------------- #
@@ -464,13 +432,14 @@ class WcEmailUnit(AppResolveUnit):
     if context == 'ERROR':
       body = body % (script, script, self.pmeta['progLib'])
     self.sendMail(subject, body)
-     
+
   # -------------------------------------------------------------- #
   # getEmailBody
   # ---------------------------------------------------------------#
-  def getEmailBody(self, context):
+  def getEmailBody(self, context, errMsg=None):
 
-    errorBody = '''
+#    errNote = '\nsystem message : %s\n' % errMsg if errMsg else ''
+    errBody = '''
 Hi CI workerscomp team,
 
 CI workerscomp %s.sas has errored :<
@@ -486,7 +455,8 @@ CI workerscomp emulation team
 '''
     if context == 'ERROR':
       subject = 'ci workerscomp emulation has errored :<'
-      return (subject, errorBody)
+      return (subject, errBody)
     return ('','')
+
 
 
