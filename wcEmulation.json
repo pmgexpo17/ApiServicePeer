@@ -6,13 +6,15 @@ pmeta={
 	},
 	"Global" : {
 	  "appScope" : "DEV",
-	  "ciwork" : "/data/projectarea/wcEmltnService/saswork/1803",
+	  "ciwork" : "/data/projectarea/wcEmltnService",
 		"logLevel" : "ERROR",
     "macroLib" : "/data/BASESAS/saslib/ci/emulation/wrkcmp/dev1/sasautos",
 		"progLib" : "/data/projectarea/wcEmltnService/saslib",
 	  "stashHost" : "https://bitbucket.int.corp.sun/projects",
-	  "stashBase" : "PI/repos/ci/browse/emulation/EmulatorCodeWC",
-	  "userEmail" : "peter.mcgill@suncorp.com.au"
+	  "stashBase" : "PI/repos/ci/browse/emulation/AutoEmltnWC",
+	  "userEmail" : "peter.mcgill@suncorp.com.au",
+	  "localBase" : "//int.corp.sun/GroupData/actuary/rateengn/Commercial/workerscomp/emulation/service",
+	  "linkBase" : "/apps/webapi/wcemltn"
 	},
 	"WcEmltnDirector" : {
 	  "codeLib" : "/data/BASESAS/saslib/ci/emulation/wrkcmp/dev1/calcorder",
@@ -25,13 +27,14 @@ pmeta={
     "globals" : ["*"]
 	},
 	"WcInputXml2Sas" : {
-    "inputTxnFilter" : "LAST_INF_BY_PCID",
-    "inputXmlBase" : "/data/interface/inbound/wcEmulation/inputXml",
-    "inputXmlPath" : "refactor/WC_201803",
-    "mountPath" : "/lan/u352425/wcEmltnService",
-    "pmovDsId" : "1803",
-    "pmovLib" : "/data/projectarea/wcEmltnService/saswork/pmov",
+    "inputTxnFilter" : "ALL",
+    "inputXmlFile" : "WC_201804.txt",
+    "repoPath" : "webapi/apiservice/xmlToSas/normalToSas.jinja",
+    "jinjaTemplate" : "normalToSas.jinja",
+    "pmovDsId" : "1804",
+    "pmovS3Base" : "/idw/data/projectarea/pj49/actsydney/wc/basedata",
     "runMode" : 1,
     "globals" : ["*"]
 	}
 }
+
