@@ -474,7 +474,9 @@ class WcEmailUnit(AppResolveUnit):
   # ---------------------------------------------------------------#
   def TXN_REPEAT(self, context):
 
-    if self.state.next == 'TXN_REPEAT':
+    if self.state.next == 'XML_TO_SAS':
+      script = 'wcInputXmlToSas'
+    elif self.state.next == 'TXN_REPEAT':
       script = 'batchTxnScheduleWC'
     elif self.state.next == 'COMPLETE':
       script = 'restackTxnOutputWC'
