@@ -1,40 +1,45 @@
 pmeta={
-	"Program" : {
-		"name" : "WcEmltnService", 
-		"description" : "Workerscomp Emulation",
-		"logLevel" : "INFO"
-	},
-	"Global" : {
-	  "appScope" : "DEV",
-	  "ciwork" : "/data/projectarea/wcEmltnService",
-		"logLevel" : "ERROR",
+  "Program" : {
+    "name" : "WcEmltnService", 
+    "description" : "Workerscomp Emulation",
+    "logLevel" : "INFO"
+  },
+  "Global" : {
+    "appScope" : "DEV",
+    "ciwork" : "/data/projectarea/wcEmltnService",
+    "logLevel" : "ERROR",
     "macroLib" : "/data/BASESAS/saslib/ci/emulation/wrkcmp/dev1/sasautos",
-		"progLib" : "/data/projectarea/wcEmltnService/saslib",
-	  "stashHost" : "https://bitbucket.int.corp.sun/projects",
-	  "stashBase" : "PI/repos/ci/browse/emulation/AutoEmltnWC",
-	  "userEmail" : "peter.mcgill@suncorp.com.au",
-	  "localBase" : "//int.corp.sun/GroupData/actuary/rateengn/Commercial/workerscomp/emulation/service",
-	  "linkBase" : "/apps/webapi/wcemltn"
-	},
-	"WcEmltnDirector" : {
-	  "codeLib" : "/data/BASESAS/saslib/ci/emulation/wrkcmp/dev1/calcorder",
-	  "inputSrc" : "final_wc_201803",
-	  "progLib" : "/data/projectarea/wcEmltnService/saslib",
-	  "program" : "MAIN:ALL:ADDTNL:ALL:EXTNSN:ALL:ADDTNL:ALL",
-	  "rateLib" : "/data/BASE/rateslib/ci/emulation/wrkcmp/dev1",
-	  "reRun" : "N",
-	  "sgmtSize" : "4000",
+    "stashHost" : "https://bitbucket.int.corp.sun/projects",
+    "stashBase" : "PI/repos/ci/browse/emulation/AutoEmltnWC",
+    "userEmail" : "peter.mcgill@suncorp.com.au",
+    "localBase" : "//int.corp.sun/GroupData/actuary/rateengn/Commercial/workerscomp/emulation/service",
+    "linkBase" : "/apps/webapi/wcemltn"
+  },
+  "WcEmltnDirector" : {
+    "codeLib" : "/data/BASESAS/saslib/ci/emulation/wrkcmp/dev1/calcorder",
+    "inputSrc" : "final_wc_201803",
+    "progLib" : "/data/projectarea/wcEmltnService/saslib",
+    "program" : "MAIN:ALL:ADDTNL:ALL:EXTNSN:ALL:ADDTNL:ALL",
+    "rateLib" : "/data/BASE/rateslib/ci/emulation/wrkcmp/dev1",
+    "reRun" : "N",
+    "sgmtSize" : "4000",
     "globals" : ["*"]
-	},
-	"WcInputXml2Sas" : {
+  },
+  "WcInputXml2Sas" : {
     "inputTxnFilter" : "ALL",
-    "inputXmlFile" : "WC_201804.txt",
-    "repoPath" : "webapi/apiservice/xmlToSas/normalToSas.jinja",
-    "jinjaTemplate" : "normalToSas.jinja",
+    "tmpltModule" : "webapi/apiservice/xmlToSas",
+    "tmpltName" : "normalToSas.jinja",
     "pmovDsId" : "1804",
     "pmovS3Base" : "/idw/data/projectarea/pj49/actsydney/wc/basedata",
     "runMode" : 1,
+    "schemaRepo" : "webapi/apiservice/xmlToNormal",				
+    "xmlSchema" : "GipeCIPricingSchema.json",
     "globals" : ["*"]
-	}
+  },
+  "NormalizeXml" : {
+    "inputXmlFile" : "WC_201804.txt",
+    "delimiter" : "<>",
+    "xmlSchema" : "GipeCIPricingSchema.json",		
+    "globals" : ["linkBase"]
+  }
 }
-
