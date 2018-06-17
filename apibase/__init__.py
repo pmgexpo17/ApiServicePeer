@@ -1,9 +1,22 @@
+# Copyright (c) 2018 Peter A McGill
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License. 
+#
 from appProvider import AppProvider
 import logging
 
 appPrvdr = AppProvider()
-appPrvdr.init('/apps/home/u352425/emltnApi')
-#appPrvdr.init('/home/workspace/leveldb/devdb1')
+appPrvdr.init('/home/workspace/leveldb/devdb1')
 
 def dispatch(jobId, *argv, **kwargs):
   logger = logging.getLogger('apscheduler')
@@ -14,28 +27,6 @@ def dispatch(jobId, *argv, **kwargs):
     return
   
   delegate(*argv, **kwargs)
-  try:
-    delegate.state
-    delegate.listener
-  except AttributeError:
-    # only stateful jobs are retained
-    removeMeta(jobId)
-    with appPrvdr.lock:
-      del(appPrvdr._job[jobId])
-    return
-  if delegate.state.complete:
-    logtxt = 'director[%s] is complete, removing it now ...'
-    if delegate.state.failed:
-      logtxt = 'director[%s] has failed, removing it now ...'
-    logger.info(logtxt, delegate.state.jobId)
-    removeMeta(jobId)
-    with appPrvdr.lock:
-      if hasattr(delegate, 'listener'):
-        appPrvdr.scheduler.remove_listener(delegate.listener)
-      del(appPrvdr._job[jobId])
-
-def removeMeta(jobId):
-
-  dbKey = 'PMETA|' + jobId
-  appPrvdr.db.Delete(dbKey)
+  with appPrvdr.lock
+    appPrvdr.evalComplete(delegate, jobId)
   
