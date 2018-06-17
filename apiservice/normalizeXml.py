@@ -16,7 +16,7 @@ import os, sys, time
 import logging
 import json
 import requests, re
-from apiservice import AppDelegate, logger
+from apiservice import AppDelegate, StreamPrvdr, logger
 
 # -------------------------------------------------------------- #
 # NormalizeXml
@@ -34,17 +34,10 @@ class NormalizeXml(AppDirector, StreamPrvdr):
   # _start
   # ---------------------------------------------------------------#                                          
   def _start(self):
-    _pmeta = self.getProgramMeta()
-    pmeta = _pmeta['NormalizeXml']
-    _globals = pmeta['globals'] # append global vars in this list
-    del(pmeta['globals'])
-    if _globals[0] == '*':
-      pmeta.update(_pmeta['Global'])
-    else:
-      for item in _globals:
-        pmeta[item] = _pmeta['Global'][item]    
+    scriptPrvdr = WcScriptPrvdr(self._leveldb,jobId=self.jobId)
+    tsXref, pmeta = scriptPrvdr()
     self.resolve.pmeta = pmeta
-    self.tsXref = self.resolve._start()
+    self.resolve._start(tsXref)
 
   # -------------------------------------------------------------- #
   # advance
@@ -167,13 +160,11 @@ class ResolveUnit(AppResolveUnit):
   # -------------------------------------------------------------- #
   # _start
   # ---------------------------------------------------------------#
-  def _start(self):
-    dbKey = 'TSXREF|' + self.jobId
-    self.tsXref = self._leveldb.Get(dbKey)
+  def _start(self, tsXref):
+    self.tsXref = tsXref
     xmlSchema = '%s/%s' %  (self.pmeta['ciwork'],self.pmeta['xmlSchema'])
     self.importXmlSchema(xmlSchema)
     self.checkXmlExists()
-    return self.tsXref
 
   # -------------------------------------------------------------- #
   # importXmlSchema
@@ -191,7 +182,7 @@ class ResolveUnit(AppResolveUnit):
     endKey = schemaDoc['endKey']
     for tableName, detail in tableDefn.items():
       logger.debug('tableName : %s, details : %s' % (tableName, str(detail)))
-      tablizer = XmlTablizer(_leveldb,timestamp,detail,tableName)
+      tablizer = XmlTablizer(_leveldb,self.tsXref,detail,tableName)
       try :
         tablizer.endKey = endKey[tableName]  
       except KeyError:
@@ -213,14 +204,12 @@ class ResolveUnit(AppResolveUnit):
     logger.info('[START] checkXmlExists')
 
     inputXmlPath = '%s/inputXml/%s' % (self.pmeta['linkBase'],self.pmeta['inputXmlFile'])
-    try:
-      self.runProcess(['ls', inputXmlPath])
-    except Exception:
+    if os.path.exists(inputXmlPath):
+      logger.info('wcEmulation inputXmlFile : ' + inputXmlPath)
+    else:
       errmsg = 'wcEmulation inputXmlFile is not found : ' +  inputXmlPath
       logger.error(errmsg)
       raise Exception(errmsg)
-    else:
-      logger.info('wcEmulation inputXmlFile : ' + inputXmlPath)
     logger.info('[END] checkInputFile')
 
   # -------------------------------------------------------------- #
@@ -315,7 +304,6 @@ class XmlTablizer(object):
     self._record[nodeKey] = record
     if self.ukeyRef == nodeKey:
       self.putUniqKey(nodeKey)
-    
 
   # -------------------------------------------------------------- #
   # putNext
@@ -360,3 +348,42 @@ class XmlTablizer(object):
       dbKey = '%s|%s|UKEY' % (self.tsxref, self.fkeyRef)
       return self.retrieve(dbKey,noValue=[])
     return []
+
+# -------------------------------------------------------------- #
+# WcScriptPrvdr
+# ---------------------------------------------------------------#
+class WcScriptPrvdr(SasScriptPrvdr):
+
+  # -------------------------------------------------------------- #
+  # __call__
+  # ---------------------------------------------------------------#
+  def __call__(self):
+
+    pmeta = self.getProgramMeta()
+    dbKey = 'TSXREF|' + self.jobId
+    try:
+      tsXref = self._leveldb.Get(dbKey)
+    except KeyError:
+      raise Exception('EEOWW! tsXref param not found : ' + dbKey)
+    return (tsXref, pmeta)
+
+  # -------------------------------------------------------------- #
+  # getProgramMeta
+  # ---------------------------------------------------------------#
+  def getProgramMeta(self):
+    dbKey = 'PMETA|' + self.state.jobId
+    try:
+      pmetadoc = self._leveldb.Get(dbKey)
+    except KeyError:
+      raise Exception('EEOWW! pmeta json document not found : ' + dbKey)
+
+    _pmeta = json.loads(pmetadoc)
+    pmeta = _pmeta['NormalizeXml']
+    _globals = pmeta['globals'] # append global vars in this list
+    del(pmeta['globals'])
+    if _globals[0] == '*':
+      pmeta.update(_pmeta['Global'])
+    else:
+      for item in _globals:
+        pmeta[item] = _pmeta['Global'][item]
+    return pmeta
