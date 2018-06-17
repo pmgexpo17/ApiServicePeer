@@ -20,17 +20,9 @@ class WcEmltnInputPrvdr(AppDirector):
   # _start
   # ---------------------------------------------------------------#                                          
   def _start(self):
-    _pmeta = self.getProgramMeta()
-    pmeta = _pmeta['WcInputXmlToSas']
-    _globals = pmeta['globals'] # append global vars in this list
-    del(pmeta['globals'])
-    if _globals[0] == '*':
-      pmeta.update(_pmeta['Global'])
-    else:
-      for item in _globals:
-        pmeta[item] = _pmeta['Global'][item]    
-    self.resolve.pmeta = pmeta
-    self.tsXref = self.resolve._start()
+    scriptPrvdr = WcScriptPrvdr(self._leveldb,jobId=self.jobId)
+    self.resolve.pmeta = scriptPrvdr()
+    self.resolve._start()
 
   # -------------------------------------------------------------- #
   # advance
@@ -113,17 +105,13 @@ class WcResolveUnit(AppResolveUnit):
   # _start
   # ---------------------------------------------------------------#
   def _start(self):
-    self.loadProgramMeta()
     dbKey = 'CRED|' + self.jobId
     credentials = self._leveldb.Get(dbKey)
     stashPath = '/%s/%s' % (self.pmeta['stashHost'],self.pmeta['stashBase'])
     uriPath = '%s/%s/%s?raw' % (stashPath,self.pmeta['schemaRepo'],self.pmeta['xmlSchema'])
     xmlSchema = '%s/%s' %  (self.pmeta['ciwork'],self.pmeta['xmlSchema'])
-    self.runProcess(['curl',credentials,uriPath,'-o',xmlSchema])
+    self.sysCmd(['curl','-u',credentials,uriPath,'-o',xmlSchema])
     self.importXmlSchema(xmlSchema)
-    dbKey = 'TSXREF|' + self.jobId
-    self.tsXref = self._leveldb.Get(dbKey)
-    return self.tsXref
     
   # -------------------------------------------------------------- #
   # importXmlSchema
@@ -236,7 +224,6 @@ class WcResolveUnit(AppResolveUnit):
 	# ---------------------------------------------------------------#
   def TRANSFORM_SAS(self):
 
-    self.compileSessionVars('wcInputXml2Sas.sas')
     sasPrgm = '%s/wcInputXml2Sas.sas' % self.pmeta['progLib']
     logfile = '%s/log/wcInputXml2Sas.log' % self.pmeta['progLib']
     sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
@@ -246,28 +233,41 @@ class WcResolveUnit(AppResolveUnit):
     self.state.hasNext = False
     self.state.complete = True
     
-  # -------------------------------------------------------------- #
-  # compileSessionVars
-  # ---------------------------------------------------------------#
-  def compileSessionVars(self, sasfile, incItems=None):
-    logger.debug('[START] compileSessionVars')
-    logger.debug('progLib : ' + self.pmeta['progLib'])
-    tmpltName = '%s/tmplt/%s' % (self.pmeta['progLib'], sasfile)
-    sasFile = '%s/%s' % (self.pmeta['progLib'], sasfile)
-    fhr = open(tmpltName,'r')
-    _puttext = '  %let {} = {};\n'
-    with open(sasFile,'w') as fhw :
-      for line in fhr:
-        if re.search(r'<insert>', line):
-          self.putMetaItems(_puttext, fhw, incItems)
-        else:
-          fhw.write(line)
-    fhr.close()
+# -------------------------------------------------------------- #
+# WcScriptPrvdr
+# ---------------------------------------------------------------#
+class WcScriptPrvdr(SasScriptPrvdr):
 
   # -------------------------------------------------------------- #
-  # putMetaItems
-  # ---------------------------------------------------------------#                                          
-  def putMetaItems(self, puttext, fhw, incItems):
-    for itemKey in sorted(self.pmeta.keys()):
-      if not incItems or itemKey in incItems:
-        fhw.write(puttext.format(itemKey, self.pmeta[itemKey]))
+  # __call__
+  # ---------------------------------------------------------------#
+  def __call__(self):
+
+    pmeta = self.getProgramMeta()
+    dbKey = 'TSXREF|' + self.jobId
+    try:
+      tsXref = self._leveldb.Get(dbKey)
+    except KeyError:
+      raise Exception('EEOWW! tsXref param not found : ' + dbKey)
+    self.compileSessionVars('wcInputXml2Sas.sas')
+
+  # -------------------------------------------------------------- #
+  # getProgramMeta
+  # ---------------------------------------------------------------#
+  def getProgramMeta(self):
+    dbKey = 'PMETA|' + self.state.jobId
+    try:
+      pmetadoc = self._leveldb.Get(dbKey)
+    except KeyError:
+      raise Exception('EEOWW! pmeta json document not found : ' + dbKey)
+
+    _pmeta = json.loads(pmetadoc)
+    pmeta = _pmeta['WcInputXmlToSas']
+    _globals = pmeta['globals'] # append global vars in this list
+    del(pmeta['globals'])
+    if _globals[0] == '*':
+      pmeta.update(_pmeta['Global'])
+    else:
+      for item in _globals:
+        pmeta[item] = _pmeta['Global'][item]
+    return pmeta
