@@ -14,11 +14,12 @@
 #
 from abc import ABCMeta, abstractmethod
 from threading import RLock
-from subprocess import Popen, PIPE
+from subprocess import Popen, PIPE, call as subcall
 import logging
 import os
 
 logger = logging.getLogger('apscheduler')
+
 # -------------------------------------------------------------- #
 # AppDelegate
 # ---------------------------------------------------------------#
@@ -30,9 +31,25 @@ class AppDelegate(object):
     self.appType = 'delegate'
 
   # ------------------------------------------------------------ #
+  # sysCmd
+  # -------------------------------------------------------------#
+  def sysCmd(self, sysArgs, cwd=None):
+
+    try:
+      scriptname = self.__class__.__name__
+      if cwd:
+        return subcall(sysArgs, cwd=cwd)
+      else:
+        return subcall(sysArgs)
+    except OSError as ex:
+      errmsg = '%s syscmd failed : %s' % (scriptname, str(ex))
+      logger.error(errmsg)
+      raise Exception(errmsg)
+
+  # ------------------------------------------------------------ #
   # runProcess
   # -------------------------------------------------------------#
-  def runProcess(self, sysArgs, returnRc=False, cwd=None):
+  def runProcess(self, sysArgs, cwd=None):
     
     try:
       scriptname = self.__class__.__name__
@@ -41,8 +58,6 @@ class AppDelegate(object):
       else:
         prcss = Popen(sysArgs,stdout=PIPE,stderr=PIPE)
       (stdout, stderr) = prcss.communicate()
-      if returnRc:
-        return prcss.returncode
       if prcss.returncode:
         if not stderr:
           stderr = ' '.join(sysArgs)
@@ -211,12 +226,52 @@ class AppListener(object):
   @abstractmethod
   def addJobs(self, *args, **kwargs):
     pass
+
 # -------------------------------------------------------------- #
-# StreamPrvdr
+# StreamProvider
 # ---------------------------------------------------------------#
-class StreamPrvdr(object):
+class StreamProvider(object):
   __metaclass__ = ABCMeta
 
   @abstractmethod
   def renderStream(self, *args, **kwargs):
     pass
+
+# -------------------------------------------------------------- #
+# SasScriptPrvdr
+# ---------------------------------------------------------------#
+class SasScriptPrvdr(AppDelegate):
+  __metaclass__ = ABCMeta
+
+  # -------------------------------------------------------------- #
+  # getProgramMeta
+  # ---------------------------------------------------------------#
+  @abstractmethod
+  def getProgramMeta(self):
+    pass
+
+  # -------------------------------------------------------------- #
+  # compileScript
+  # ---------------------------------------------------------------#
+  def compileScript(self, sasfile, incItems=None):
+    logger.debug('progLib : ' + self.pmeta['progLib'])
+    tmpltName = '%s/%s' % (self.pmeta['tmpltLib'], sasfile)
+    sasFile = '%s/%s' % (self.pmeta['progLib'], sasfile)
+    fhr = open(tmpltName,'r')
+    _puttext = '  %let {} = {};\n'
+    with open(sasFile,'w') as fhw :
+      for line in fhr:
+        if re.search(r'<insert>', line):
+          self.putMetaItems(_puttext, fhw, incItems)
+        else:
+          fhw.write(line)
+    fhr.close()
+
+  # -------------------------------------------------------------- #
+  # putMetaItems
+  # ---------------------------------------------------------------#                                          
+  def putMetaItems(self, puttext, fhw, incItems):
+    for itemKey, metaItem in self.pmeta.items():
+      if not incItems or itemKey in incItems:
+        fhw.write(puttext.format(itemKey, metaItem))
+
