@@ -30,7 +30,7 @@ pmeta={
     "tmpltModule" : "webapi/apiservice/xmlToSas",
     "tmpltName" : "normalToSas.jinja",
     "pmovDsId" : "1804",
-    "pmovS3Base" : "/idw/data/projectarea/pj49/actsydney/wc/basedata",
+    "S3Path" : "/idw/data/projectarea/pj49/actsydney/wc/basedata",
     "runMode" : 1,
     "schemaRepo" : "webapi/apiservice/xmlToNormal",				
     "xmlSchema" : "GipeCIPricingSchema.json",
