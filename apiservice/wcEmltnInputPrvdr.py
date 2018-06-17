@@ -32,7 +32,6 @@ class WcEmltnInputPrvdr(AppDirector):
     self.resolve.pmeta = pmeta
     self.tsXref = self.resolve._start()
 
-
   # -------------------------------------------------------------- #
   # advance
   # ---------------------------------------------------------------#                                          
@@ -56,17 +55,6 @@ class WcEmltnInputPrvdr(AppDirector):
       _pmeta = self._leveldb.Get(dbKey)
     except KeyError:
       raise Exception('EEEOWWW! pmeta json document not found : ' + dbKey)
-    logger.info('dbKey : ' + dbKey)
-    pmeta = json.loads(_pmeta)
-    self.pmeta = pmeta['WcInputXml2Sas']
-    _globals = self.pmeta['globals']
-    del(self.pmeta['globals'])
-    print('globals : ' + _globals[0])
-    if _globals[0] == '*':
-      self.pmeta.update(pmeta['Global'])
-    else:
-      for item in _globals:
-        self.pmeta[item] = pmeta['Global'][item]
 
   # -------------------------------------------------------------- #
   # onComplete
@@ -130,11 +118,11 @@ class WcResolveUnit(AppResolveUnit):
     credentials = self._leveldb.Get(dbKey)
     stashPath = '/%s/%s' % (self.pmeta['stashHost'],self.pmeta['stashBase'])
     uriPath = '%s/%s/%s?raw' % (stashPath,self.pmeta['schemaRepo'],self.pmeta['xmlSchema'])
-    dbKey = 'TSXREF|' + self.jobId
-    self.tsXref = self._leveldb.Get(dbKey)
-    xmlSchema = '%s/%s/%s' %  (self.pmeta['ciwork'],self.tsXref,self.pmeta['xmlSchema'])
+    xmlSchema = '%s/%s' %  (self.pmeta['ciwork'],self.pmeta['xmlSchema'])
     self.runProcess(['curl',credentials,uriPath,'-o',xmlSchema])
     self.importXmlSchema(xmlSchema)
+    dbKey = 'TSXREF|' + self.jobId
+    self.tsXref = self._leveldb.Get(dbKey)
     return self.tsXref
     
   # -------------------------------------------------------------- #
@@ -181,12 +169,12 @@ class WcResolveUnit(AppResolveUnit):
   def IMPORT_TO_SAS(self):
     env = Environment(loader=PackageLoader('apiservice', 'xmlToSas'),trim_blocks=True)
     template = env.get_template('streamToSas.jinja')    
-    for tableName in sorted(self.clmnDefn):
-      sasDefn = self.clmnDefn[tableName]
-      sasPrgm = '%s/%s/%s.sas' % (self.pmeta['ciwork'],self.tsXref,tableName)
+    for tableName in sorted(self.sasDefn):
+      sasDefn = self.sasDefn[tableName]
+      sasPrgm = '%s/%s.sas' % (self.pmeta['progLib'],tableName)
       template.stream(jobId=self.jobId,tableName=tableName,sasDefn=sasDefn).dump(sasPrgm)
 
-      logfile = '%s/%s/log/%s.log' % (self.pmeta['ciwork'],self.tsXref,tableName)
+      logfile = '%s/log/%s.log' % (self.pmeta['progLib'],tableName)
       sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
       self.runProcess(sysArgs)
     self.state.next = 'GET_PMOV_DATA'
@@ -228,11 +216,11 @@ class WcResolveUnit(AppResolveUnit):
           logger.info('Note : wcEmltnService S3 transfer min period = daily')
           return self.state
 
-    pmovS3Dir = pmovDsId.strftime('%Y%m')
-    if self.pmeta['pmovS3Base'][-1] != '/':
-      pmovS3Dir = '/' + pmovS3Dir
-    self.pmeta['pmovS3Repo'] += pmovS3Dir
-    incItems = ['macroLib','pmovLib','pmovS3Repo','pmovDsId']
+    S3Dir = pmovDsId.strftime('%Y%m')
+    if self.pmeta['S3Path'][-1] != '/':
+      S3Dir = '/' + S3Dir
+    self.pmeta['S3Path'] += S3Dir
+    incItems = ['macroLib','pmovLib','S3Path','pmovDsId']
     self.compileSessionVars('getPmovFromS3.sas',incItems=incItems)
     
     sasPrgm = '%s/getPmovFromS3.sas' % self.pmeta['progLib']
@@ -257,19 +245,12 @@ class WcResolveUnit(AppResolveUnit):
     self.runProcess(sysArgs)
     self.state.hasNext = False
     self.state.complete = True
-
     
   # -------------------------------------------------------------- #
   # compileSessionVars
   # ---------------------------------------------------------------#
   def compileSessionVars(self, sasfile, incItems=None):
     logger.debug('[START] compileSessionVars')
-    dbKey = 'TSXREF|' + self.jobId
-    try:
-      timestamp = self._leveldb.Get(dbKey)
-    except KeyError:
-      raise Exception('timestamp job xref id not found for job : %s' % self.jobId) 
-    self.pmeta['ciwork'] += '/WC%s' % timestamp
     logger.debug('progLib : ' + self.pmeta['progLib'])
     tmpltName = '%s/tmplt/%s' % (self.pmeta['progLib'], sasfile)
     sasFile = '%s/%s' % (self.pmeta['progLib'], sasfile)
@@ -290,4 +271,3 @@ class WcResolveUnit(AppResolveUnit):
     for itemKey in sorted(self.pmeta.keys()):
       if not incItems or itemKey in incItems:
         fhw.write(puttext.format(itemKey, self.pmeta[itemKey]))
-
