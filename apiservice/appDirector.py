@@ -228,9 +228,9 @@ class AppListener(object):
     pass
 
 # -------------------------------------------------------------- #
-# StreamProvider
+# StreamPrvdr
 # ---------------------------------------------------------------#
-class StreamProvider(object):
+class StreamPrvdr(object):
   __metaclass__ = ABCMeta
 
   @abstractmethod
