@@ -1,3 +1,17 @@
+# Copyright (c) 2018 Peter A McGill
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License. 
+#
 from threading import RLock
 from subprocess import Popen, PIPE
 import logging
@@ -12,6 +26,7 @@ class AppDelegate(object):
   def __init__(self, leveldb, jobId=None):
     self._leveldb = leveldb
     self.jobId = jobId
+    self.appType = 'delegate'
 
   # ------------------------------------------------------------ #
   # runProcess
@@ -48,16 +63,15 @@ class AppDirector(AppDelegate):
     super(AppDirector,self).__init__(leveldb, jobId=jobId)
     self.state = AppState(jobId)
     self.resolve = None
-    self.runMode = 'INIT'
         
   # run wrkcmp emulation by apScheduler
   def __call__(self, *argv, **kwargs):
 
     with self.state.lock:
-      if self.runMode == 'INIT':
+      if self.state.status == 'STOPPED':
         try:
           self._start()
-          self.runMode = 'STARTED'
+          self.state.status = 'STARTED'
         except Exception as ex:
           self.state.complete = True
           self.state.failed = True
@@ -93,8 +107,11 @@ class AppDirector(AppDelegate):
           break  
         state = self.advance()
         logger.info('next state : ' + self.state.current)
+      if state.complete:
+        self.onComplete(self)
     except Exception as ex:
-      self.mailer[state.current]('ERROR')
+      #self.mailer[state.current]('ERROR')
+      self.onError(str(ex))
       self.state.complete = True
       self.state.failed = True
       logger.error('runApp failed : ' + str(ex))
@@ -103,6 +120,18 @@ class AppDirector(AppDelegate):
   # advance
   # -------------------------------------------------------------- #
   def advance(self, signal=None):
+    pass
+
+  # -------------------------------------------------------------- #
+  # onComplete
+  # ---------------------------------------------------------------#
+  def onComplete(self, *args):
+    pass
+
+  # -------------------------------------------------------------- #
+  # onError
+  # ---------------------------------------------------------------#
+  def onError(self, *args):
     pass
 
   # -------------------------------------------------------------- #
@@ -126,6 +155,7 @@ class AppState(object):
     self.complete = False
     self.failed = True
     self.lock = RLock()
+    self.status = 'STOPPED'
 
 # -------------------------------------------------------------- #
 # AppResolveUnit
@@ -163,11 +193,9 @@ class AppListener(object):
     self._leveldb = leveldb
 
 # -------------------------------------------------------------- #
-# ApiException
+# StreamPrvdr
 # ---------------------------------------------------------------#
-class ApiException(Exception):
-  def __init__(self, message):
-    self.message = message
+class StreamPrvdr(object):
 
-  def __str__(self):
-    return self.message
+  def renderStream(self):
+    pass
