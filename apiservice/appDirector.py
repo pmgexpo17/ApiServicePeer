@@ -12,6 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License. 
 #
+from abc import ABCMeta, abstractmethod
 from threading import RLock
 from subprocess import Popen, PIPE
 import logging
@@ -58,6 +59,7 @@ class AppDelegate(object):
 # AppDirector
 # ---------------------------------------------------------------#
 class AppDirector(AppDelegate):
+  __metaclass__ = ABCMeta
 
   def __init__(self, leveldb, jobId):
     super(AppDirector,self).__init__(leveldb, jobId=jobId)
@@ -119,25 +121,28 @@ class AppDirector(AppDelegate):
   # -------------------------------------------------------------- #
   # advance
   # -------------------------------------------------------------- #
-  def advance(self, signal=None):
+  @abstractmethod
+  def advance(self, *args, **kwargs):
     pass
 
   # -------------------------------------------------------------- #
   # onComplete
   # ---------------------------------------------------------------#
-  def onComplete(self, *args):
+  @abstractmethod
+  def onComplete(self, *args, **kwargs):
     pass
 
   # -------------------------------------------------------------- #
   # onError
   # ---------------------------------------------------------------#
-  def onError(self, *args):
+  def onError(self, *args, **kwargs):
     pass
 
   # -------------------------------------------------------------- #
   # quicken
   # ---------------------------------------------------------------#
-  def quicken(self):
+  @abstractmethod
+  def quicken(self, *args, **kwargs):
     pass
 
 # -------------------------------------------------------------- #
@@ -188,14 +193,30 @@ class AppResolveUnit(object):
 # AppListener
 # ---------------------------------------------------------------#
 class AppListener(object):
+  __metaclass__ = ABCMeta
 
   def __init__(self, leveldb):
     self._leveldb = leveldb
 
+  # -------------------------------------------------------------- #
+  # addJob - add a live job id
+  # ---------------------------------------------------------------#
+  @abstractmethod
+  def addJob(self, *args, **kwargs):
+    pass
+
+  # -------------------------------------------------------------- #
+  # addJobs - add a list of live job ids
+  # ---------------------------------------------------------------#
+  @abstractmethod
+  def addJobs(self, *args, **kwargs):
+    pass
 # -------------------------------------------------------------- #
 # StreamPrvdr
 # ---------------------------------------------------------------#
 class StreamPrvdr(object):
+  __metaclass__ = ABCMeta
 
-  def renderStream(self):
+  @abstractmethod
+  def renderStream(self, *args, **kwargs):
     pass
