@@ -37,14 +37,8 @@ class WcEmltnDirector(AppDirector):
     else:
       for item in _globals:
         pmeta[item] = _pmeta['Global'][item]
-    dbKey = 'TSXREF|' + self.jobId
-    tsXref = datetime.datetime.now().strftime('%y%m%d%H%M%S')
-    self._leveldb.Put(dbKey, tsXref)
-    saswork = '/' + timestamp
-    self.pmeta['ciwork'] += saswork
-    self.pmeta['progLib'] = self.pmeta['ciwork'] + '/saslib'
     self.resolve.pmeta = pmeta
-    self.resolve._start(tsXref)
+    self.resolve._start(self.tsXref)
     self.mailer.pmeta = pmeta
     self.mailer._start()
 
@@ -81,7 +75,17 @@ class WcEmltnDirector(AppDirector):
       _pmeta = self._leveldb.Get(dbKey)
     except KeyError:
       raise Exception('EEEOWWW! pmeta json document not found : {}'.format(dbKey))
-    return json.loads(_pmeta)
+    dbKey = 'TSXREF|' + self.jobId
+    self.tsXref = datetime.datetime.now().strftime('%y%m%d%H%M%S')
+    self._leveldb.Put(dbKey, tsXref)
+    pmeta = json.loads(_pmeta)
+    ciwork = pmeta['Global']['ciwork']
+    saswork = '/WC' + tsXref
+    ciwork += saswork
+    pmeta['Global']['ciwork'] = ciwork
+    pmeta['Global']['progLib'] = ciwork + '/saslib'
+    self._leveldb.Put(dbKey, json.dumps(pmeta))
+    return pmeta
 
   # -------------------------------------------------------------- #
   # onComplete
@@ -388,7 +392,9 @@ class WcEmltnListener(AppListener):
         with self.state.lock:
           self.jobIdList.remove(event.job_id)
           if not self.jobIdList:
-            self.putApiRequest()
+            self.putApiRequest(201)
+    elif event.exception:
+      self.putApiRequest(500)
 
   # -------------------------------------------------------------- #
   # addJob - add a live job id
@@ -410,9 +416,9 @@ class WcEmltnListener(AppListener):
   # -------------------------------------------------------------- #
   # putApiRequest
   # ---------------------------------------------------------------#
-  def putApiRequest(self):
+  def putApiRequest(self,signal):
     classRef = 'wcEmltnService:WcEmltnDirector'
-    pdata = (self.state.jobId,classRef, json.dumps({'signal':201}))
+    pdata = (self.state.jobId,classRef, json.dumps({'signal':signal}))
     params = '{"type":"director","id":"%s","service":"%s","kwargs":%s,"args":[]}' % pdata
     data = [('job',params)]
     apiUrl = 'http://localhost:5000/api/v1/job/1'
@@ -523,7 +529,6 @@ CI workerscomp emulation team
       subject = 'ci workerscomp emulation has errored :<'
       return (subject, errBody)
     return ('','')
-
 
 
 
