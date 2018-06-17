@@ -1,3 +1,17 @@
+# Copyright (c) 2018 Peter A McGill
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License. 
+#
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 from jobstore import LeveldbJobStore
@@ -31,7 +45,7 @@ class AppProvider(object):
       return
     logger.info('%s, init: not done', __name__)
     if not os.path.isdir(dbPath):
-      raise BaseException("app.config['DB_PATH'] is not a directory : " + dbPath)
+      raise Exception("app.config['DB_PATH'] is not a directory : " + dbPath)
     _leveldb = leveldb.LevelDB(dbPath)
     self.db = _leveldb
     jobstore = LeveldbJobStore(_leveldb)
@@ -59,14 +73,14 @@ class AppProvider(object):
       # must be an AppDelegate derivative, leveldb param is fixed by protocol
       self._job[jobId] = getattr(module, className)(self.db)
       params.args[-1] = jobNum + 1
-      self.addJob(jobId, params)
+      self.addJob(params,jobId)
       
     return jobs
 
   # -------------------------------------------------------------- #
   # addJob
   # ---------------------------------------------------------------#
-  def addJob(self, jobId, params):
+  def addJob(self, params, jobId):
 
     args = [jobId] + params.args
     self.scheduler.add_job('apibase:dispatch',id=jobId,args=args,kwargs=params.kwargs,misfire_grace_time=3600)
@@ -96,7 +110,7 @@ class AppProvider(object):
     director.listener = listener
     self._job[jobId] = director
     self.scheduler.add_listener(listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
-    self.addJob(jobId, params)
+    self.addJob(params,jobId)
     return jobId
 
   # -------------------------------------------------------------- #
@@ -109,13 +123,13 @@ class AppProvider(object):
       try:
         params.id
       except AttributeError:
-        raise BaseException("required param 'id' not found")
+        raise Exception("required param 'id' not found")
       logger.info('job service, id : %s, %s' % (params.id, params.service))
       if params.id:
         try:
           self._job[params.id]
         except KeyError:
-          raise BaseException('jobId not found in job register : ' + params.id)
+          raise Exception('jobId not found in job register : ' + params.id)
         if params.type == 'delegate':
           if params.responder == 'listener':
             # a live director program has dispatched a bound delegate
@@ -129,7 +143,57 @@ class AppProvider(object):
         return self.addJob(params.id, params)
       # a director program is submitted for scheduling
       return self.addNewJob(params,jobId)
-  
+
+  # -------------------------------------------------------------- #
+  # getStreamGen
+  # ---------------------------------------------------------------#
+  def getStreamGen(self, params):
+
+    with self.lock:
+      try:
+        delegate = self._job[params.id]
+      except KeyError:
+        logger.error('jobId not found in job register : ' + params.id)
+      except AttributeError:
+        raise Exception("required param 'id' not found")  
+      try:
+        streamGen = delgate.renderStream(params.dataKey)
+      except Exception as ex:
+        logger.error('stream generation failed : ' + params.id)
+        raise
+      self.evalComplete(delegate, params.id)
+      return streamGen
+
+  # -------------------------------------------------------------- #
+  # evalComplete
+  # ---------------------------------------------------------------#
+  def evalComplete(self, delegate, jobId):
+    try:
+      delegate.state
+    except AttributeError:
+      # only stateful jobs are retained
+      del(self._job[jobId])
+    else:
+      if not delegate.state.complete:
+        return
+      logMsg = 'director[%s] is complete, removing it now ...'
+      if delegate.state.failed:
+        logMsg = 'director[%s] has failed, removing it now ...'
+      logger.info(logMsg, jobId)
+      if delegate.appType = 'director'
+        self.removeMeta(jobId)
+      if hasattr(delegate, 'listener'):
+        self.scheduler.remove_listener(delegate.listener)
+      del(self._job[jobId])
+
+  # -------------------------------------------------------------- #
+  # removeMeta
+  # ---------------------------------------------------------------#
+  def removeMeta(self, jobId):
+
+    dbKey = 'PMETA|' + jobId
+    self.db.Delete(dbKey)
+
 # -------------------------------------------------------------- #
 # ServiceRegister
 # ---------------------------------------------------------------#
@@ -163,10 +227,10 @@ class ServiceRegister(object):
     try:
       module = self._modules[moduleName]
     except KeyError:
-      raise BaseException('Service module name not found in register : ' + moduleName)
+      raise Exception('Service module name not found in register : ' + moduleName)
 
     if not hasattr(module, className):
-      raise BaseException('Service classname not found in service register : ' + className)
+      raise Exception('Service classname not found in service register : ' + className)
     
     return (module, className)
 
@@ -182,5 +246,5 @@ class Params(object):
     try:
       self.__dict__.update(params)
     except:
-      raise BaseException('json decode error, bad params')     
+    raise Exception('json decode error, bad params')     
 
