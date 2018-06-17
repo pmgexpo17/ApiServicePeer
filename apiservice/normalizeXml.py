@@ -78,6 +78,12 @@ class NormalizeXml(AppDirector, StreamPrvdr):
       self.putApiRequest(201)
 
   # -------------------------------------------------------------- #
+  # onComplete
+  # ---------------------------------------------------------------#
+  def onComplete(self):
+    pass
+
+  # -------------------------------------------------------------- #
   # onError
   # ---------------------------------------------------------------#
   def onError(self, errorMsg):
@@ -164,7 +170,7 @@ class ResolveUnit(AppResolveUnit):
   def _start(self):
     dbKey = 'TSXREF|' + self.jobId
     self.tsXref = self._leveldb.Get(dbKey)
-    xmlSchema = '%s/%s/%s' %  (self.pmeta['ciwork'],self.tsXref,self.pmeta['xmlSchema'])
+    xmlSchema = '%s/%s' %  (self.pmeta['ciwork'],self.pmeta['xmlSchema'])
     self.importXmlSchema(xmlSchema)
     self.checkXmlExists()
     return self.tsXref
