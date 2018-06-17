@@ -1,4 +1,4 @@
-from apiservice import AppDirector, AppState, AppResolveUnit, AppListener, AppDelegate, logger
+from apiservice import AppDirector, AppState, AppResolveUnit, AppListener, AppDelegate, SasScriptPrvdr, logger
 import datetime
 from email.mime.text import MIMEText
 from threading import RLock
@@ -28,17 +28,10 @@ class WcEmltnDirector(AppDirector):
   # ---------------------------------------------------------------#                                          
   def _start(self):
     logger.debug('[START] loadProgramMeta')
-    _pmeta = self.getProgramMeta()
-    pmeta = _pmeta['WcEmltnDirector']
-    _globals = pmeta['globals'] # append global vars in this list
-    del(pmeta['globals'])
-    if _globals[0] == '*':
-      pmeta.update(_pmeta['Global'])
-    else:
-      for item in _globals:
-        pmeta[item] = _pmeta['Global'][item]
+    scriptPrvdr = WcScriptPrvdr(self.leveldb, jobId=self.jobId)
+    pmeta = scriptPrvdr()
     self.resolve.pmeta = pmeta
-    self.resolve._start(self.tsXref)
+    self.resolve._start()
     self.mailer.pmeta = pmeta
     self.mailer._start()
 
@@ -64,28 +57,6 @@ class WcEmltnDirector(AppDirector):
         raise Exception('WcEmltnBySgmt server process failed, rc : %d' % signal)
     self.state.current = self.state.next
     return self.state
-
-  # -------------------------------------------------------------- #
-  # getProgramMeta
-  # ---------------------------------------------------------------#                                          
-  def getProgramMeta(self):
-
-    dbKey = 'PMETA|' + self.state.jobId
-    try:
-      _pmeta = self._leveldb.Get(dbKey)
-    except KeyError:
-      raise Exception('EEEOWWW! pmeta json document not found : {}'.format(dbKey))
-    dbKey = 'TSXREF|' + self.jobId
-    self.tsXref = datetime.datetime.now().strftime('%y%m%d%H%M%S')
-    self._leveldb.Put(dbKey, tsXref)
-    pmeta = json.loads(_pmeta)
-    ciwork = pmeta['Global']['ciwork']
-    saswork = '/WC' + tsXref
-    ciwork += saswork
-    pmeta['Global']['ciwork'] = ciwork
-    pmeta['Global']['progLib'] = ciwork + '/saslib'
-    self._leveldb.Put(dbKey, json.dumps(pmeta))
-    return pmeta
 
   # -------------------------------------------------------------- #
   # onComplete
@@ -138,13 +109,12 @@ class WcResolveUnit(AppResolveUnit):
   # -------------------------------------------------------------- #
   # _start
   # ---------------------------------------------------------------#                                          
-  def _start(self, tsXref):
+  def _start(self):
     
     logger.info('[START] landriveMount')
-    self.tsXref = tsXref
     self.mountPath = 'webapi/wcemltn/session'
     logger.info('landrive mount path : ' + self.mountPath)
-    unMounted = self.runProcess(['grep','-w',self.mountPath,'/etc/mtab'],returnRc=True)
+    unMounted = self.sysCmd(['grep','-w',self.mountPath,'/etc/mtab'])
     if not unMounted:
       logger.info('landrive is already mounted : ' + self.mountPath)
       return
@@ -159,10 +129,10 @@ class WcResolveUnit(AppResolveUnit):
     credentials = os.environ['HOME'] + '/.landrive'
     runDir = os.environ['HOME'] + '/.wcemltn'
     sysArgs = ['sudo','landrive.sh','--mountcifs','--cifsenv','cifs_env','--credentials',credentials]
-    self.runProcess(sysArgs,cwd=runDir)
+    self.sysCmd(sysArgs,cwd=runDir)
 
     sysArgs = ['grep','-w',self.mountPath,'/etc/mtab']
-    unMounted = self.runProcess(['grep','-w',self.mountPath,'/etc/mtab'],returnRc=True)
+    unMounted = self.sysCmd(['grep','-w',self.mountPath,'/etc/mtab'])
     if unMounted:
       errmsg = 'failed to mount landrive : ' + self.mountPath
       logger.error(errmsg)
@@ -173,29 +143,8 @@ class WcResolveUnit(AppResolveUnit):
     self.landrive = '/lan/%s/%s' % (os.environ['USER'], self.mountPath)
     logger.info('landrive : ' + self.landrive)
     if not os.path.exists(linkPath):
-      self.runProcess(['ln','-s', self.landrive, linkPath])
+      self.sysCmd(['ln','-s', self.landrive, linkPath])
     self.putCredentials()
-
-  # -------------------------------------------------------------- #
-  # putCredentials -
-  # ---------------------------------------------------------------#
-  def putCredentials(self):
-
-    credentials = os.environ['HOME'] + '/.landrive'
-    username = None
-    password = None
-    with open(credentials,'r') as fhr:
-      for credItem in fhr:
-        credItem = credItem.strip() 
-        if 'username' in credItem:
-          username = credItem.split('=')[1]
-        elif 'password' in credItem:
-          password = credItem.split('=')[1]
-    if not username or not password:
-      raise Exception('user landrive credentials are not valid')
-    dbKey = 'CRED|' + self.jobId
-    credentials = username + ':' + password
-    self._leveldb.Put(dbKey,credentials)
 
   # -------------------------------------------------------------- #
   # getTxnCount -
@@ -220,14 +169,14 @@ class WcResolveUnit(AppResolveUnit):
   # ---------------------------------------------------------------#
   def TXN_REPEAT(self):
     if self.txnCount == 0:
-      self.compileSessionVars('batchTxnScheduleWC.sas')
+      #self.compileSessionVars('batchTxnScheduleWC.sas')
       self.state.next = 'TXN_REPEAT'
       self.getTxnCount()
       self.state.hasNext = True
       return self.state
     elif self.txnNum == self.txnCount:
-      incItems = ['ciwork','macroLib','progLib','userEmail']
-      self.compileSessionVars('restackTxnOutputWC.sas',incItems=incItems)
+      #incItems = ['ciwork','macroLib','progLib','userEmail']
+      #self.compileSessionVars('restackTxnOutputWC.sas',incItems=incItems)
       self.state.next = 'COMPLETE'
       self.restackTxnOutputAll()
       self.state.complete = True
@@ -255,7 +204,7 @@ class WcResolveUnit(AppResolveUnit):
   # - state.next = 'TXN_SGMT_RESTACK'
   # ---------------------------------------------------------------#
   def TXN_SGMT_REPEAT(self):
-    self.compileSessionVars('batchScheduleWC.sas')
+    #self.compileSessionVars('batchScheduleWC.sas')
     self.state.transition = 'EMLTN_BYSGMT_NOWAIT'
     self.state.inTransition = True
     self.state.next = 'TXN_SGMT_RESTACK'      
@@ -284,8 +233,8 @@ class WcResolveUnit(AppResolveUnit):
   # - state.next = 'TXN_REPEAT'
   # ---------------------------------------------------------------#
   def TXN_SGMT_RESTACK(self):
-    incItems = ['ciwork','macroLib']
-    self.compileSessionVars('restackSgmtOutputWC.sas',incItems=incItems)
+    #incItems = ['ciwork','macroLib']
+    #self.compileSessionVars('restackSgmtOutputWC.sas',incItems=incItems)
     self.state.next = 'TXN_REPEAT'
     self.restackSgmtOutputAll()
     self.sgmtCount = 0
@@ -301,24 +250,6 @@ class WcResolveUnit(AppResolveUnit):
     
     logger.info('run restackSgmtOutputWC.sas in subprocess txn[%d] ...' % self.txnNum)
     self.runProcess(sysArgs)
-
-  # -------------------------------------------------------------- #
-  # compileSessionVars
-  # ---------------------------------------------------------------#
-  def compileSessionVars(self, sasfile, incItems=None):
-    logger.debug('[START] compileSessionVars')
-    logger.debug('progLib : ' + self.pmeta['progLib'])
-    tmpltName = '%s/tmplt/%s' % (self.pmeta['progLib'], sasfile)
-    sasFile = '%s/%s' % (self.pmeta['progLib'], sasfile)
-    fhr = open(tmpltName,'r')
-    _puttext = '  %let {} = {};\n'
-    with open(sasFile,'w') as fhw :
-      for line in fhr:
-        if re.search(r'<insert>', line):
-          self.putMetaItems(_puttext, fhw, incItems)
-        else:
-          fhw.write(line)
-    fhr.close()
 
   # -------------------------------------------------------------- #
   # putMetaItems
@@ -532,5 +463,84 @@ CI workerscomp emulation team
       return (subject, errBody)
     return ('','')
 
+# -------------------------------------------------------------- #
+# WcScriptPrvdr
+# ---------------------------------------------------------------#
+class WcScriptPrvdr(SasScriptPrvdr):
 
+  # -------------------------------------------------------------- #
+  # __call__
+  # ---------------------------------------------------------------#
+  def __call__(self):
 
+    _pmeta = self.getProgramMeta()
+    dbKey = 'TSXREF|' + self.jobId
+    tsXref = datetime.datetime.now().strftime('%y%m%d%H%M%S')
+    self._leveldb.Put(dbKey, tsXref)
+    ciwork = pmeta['Global']['ciwork']
+    session = '/WC' + tsXref
+    ciwork += session
+    self.sysCmd(['mkdir','-p',ciwork])
+    proglib = ciwork + '/saslib'
+    self.sysCmd(['mkdir',proglib])
+    #tmpltlib = proglib + '/tmplt'
+    #self.sysCmd(['mkdir',tmpltlib])
+    logdir = proglib + '/log'
+    self.sysCmd('mkdir',logdir)
+    pmeta['Global']['ciwork'] = ciwork
+    pmeta['Global']['progLib'] = proglib
+    # write the pmeta session dict back for delegates to use
+    self._leveldb.Put(dbKey, json.dumps(pmeta))
+    tmpltPkg = pmeta['Global']['tmpltLib'] + '/*.*'
+    # copy wcemltn templates package to the session dir
+    #self.sysCmd(['cp',tmpltPkg,tmpltlib])
+    self.compileSessionVars('batchTxnScheduleWC.sas')    
+    incItems = ['ciwork','macroLib','progLib','userEmail']
+    self.compileSessionVars('restackTxnOutputWC.sas',incItems=incItems)
+    self.compileSessionVars('batchScheduleWC.sas')
+    incItems = ['ciwork','macroLib']
+    self.compileSessionVars('restackSgmtOutputWC.sas',incItems=incItems)
+    self.putCredentials()
+    return pmeta
+
+  # -------------------------------------------------------------- #
+  # getProgramMeta
+  # ---------------------------------------------------------------#
+  def getProgramMeta(self):
+    dbKey = 'PMETA|' + self.state.jobId
+    try:
+      pmetadoc = self._leveldb.Get(dbKey)
+    except KeyError:
+      raise Exception('EEOWW! pmeta json document not found : ' + dbKey)
+
+    _pmeta = json.loads(pmetadoc)
+    pmeta = _pmeta['WcEmltnDirector']
+    _globals = pmeta['globals'] # append global vars in this list
+    del(pmeta['globals'])
+    if _globals[0] == '*':
+      pmeta.update(_pmeta['Global'])
+    else:
+      for item in _globals:
+        pmeta[item] = _pmeta['Global'][item]
+    return pmeta
+
+  # -------------------------------------------------------------- #
+  # putCredentials -
+  # ---------------------------------------------------------------#
+  def putCredentials(self):
+
+    credentials = os.environ['HOME'] + '/.landrive'
+    username = None
+    password = None
+    with open(credentials,'r') as fhr:
+      for credItem in fhr:
+        credItem = credItem.strip() 
+        if 'username' in credItem:
+          username = credItem.split('=')[1]
+        elif 'password' in credItem:
+          password = credItem.split('=')[1]
+    if not username or not password:
+      raise Exception('user landrive credentials are not valid')
+    dbKey = 'CRED|' + self.jobId
+    credentials = username + ':' + password
+    self._leveldb.Put(dbKey,credentials)
