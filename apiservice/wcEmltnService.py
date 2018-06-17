@@ -16,18 +16,12 @@ class WcEmltnDirector(AppDirector):
 
   def __init__(self, leveldb, jobId):
     super(WcEmltnDirector, self).__init__(leveldb, jobId)
-    self.serviceName = 'WcEmltnDirector'
+    self.appType = 'director'
     self.state.hasNext = True
     self.resolve = WcResolveUnit()
     self.resolve.state = self.state
     self.mailer = WcEmailUnit()
     self.mailer.state = self.state
-    
-  # -------------------------------------------------------------- #
-  # getServiceName
-  # ---------------------------------------------------------------#
-  def getServiceName(self):
-    return self.serviceName
 
   # -------------------------------------------------------------- #
   # _start
@@ -42,32 +36,23 @@ class WcEmltnDirector(AppDirector):
       pmeta.update(_pmeta['Global'])
     else:
       for item in _globals:
-        pmeta[item] = _pmeta['Global'][item]    
+        pmeta[item] = _pmeta['Global'][item]
+    dbKey = 'TSXREF|' + self.jobId
+    tsXref = datetime.datetime.now().strftime('%y%m%d%H%M%S')
+    self._leveldb.Put(dbKey, tsXref)
+    saswork = '/' + timestamp
+    self.pmeta['ciwork'] += saswork
+    self.pmeta['progLib'] = self.pmeta['ciwork'] + '/saslib'
     self.resolve.pmeta = pmeta
-    self.resolve._start()
+    self.resolve._start(tsXref)
     self.mailer.pmeta = pmeta
     self.mailer._start()
-    dbKey = 'TSXREF|' + self.jobId
-    timestamp = datetime.datetime.now().strftime('%y%m%d%H%M%S')
-    self._leveldb.Put(dbKey, timestamp)
 
   # -------------------------------------------------------------- #
-  # getProgramMeta
-  # ---------------------------------------------------------------#                                          
-  def getProgramMeta(self):
-
-    dbKey = 'PMETA|' + self.state.jobId
-    try:
-      _pmeta = self._leveldb.Get(dbKey)
-    except KeyError:
-      raise Exception('EEEOWWW! pmeta json document not found : {}'.format(dbKey))
-    return json.loads(_pmeta)
-
-  # -------------------------------------------------------------- #
-  # iterate
+  # advance
   # ---------------------------------------------------------------#                                          
   def advance(self, signal=None):
-    if self.state.transition == 'EMLTN_INPUT_PRVDR':
+    if self.state.transition == 'XML_TO_SAS':
       # signal = the http status code of the companion promote method
       if signal == 201:
         logger.info('state transition is resolved, advancing ...')
@@ -87,11 +72,35 @@ class WcEmltnDirector(AppDirector):
     return self.state
 
   # -------------------------------------------------------------- #
+  # getProgramMeta
+  # ---------------------------------------------------------------#                                          
+  def getProgramMeta(self):
+
+    dbKey = 'PMETA|' + self.state.jobId
+    try:
+      _pmeta = self._leveldb.Get(dbKey)
+    except KeyError:
+      raise Exception('EEEOWWW! pmeta json document not found : {}'.format(dbKey))
+    return json.loads(_pmeta)
+
+  # -------------------------------------------------------------- #
+  # onComplete
+  # ---------------------------------------------------------------#
+  def onComplete(self):
+    self.putApiRequest(201)
+
+  # -------------------------------------------------------------- #
+  # onError
+  # ---------------------------------------------------------------#
+  def onError(self, errorMsg):
+    self.mailer[self.state.current]('ERROR')
+
+  # -------------------------------------------------------------- #
   # quicken
   # ---------------------------------------------------------------#
   def quicken(self):      
     logger.info('state transition : ' + self.state.transition)
-    if self.state.transition == 'EMLTN_INPUT_PRVDR':
+    if self.state.transition == 'XML_TO_SAS':
       self.resolve.putApiRequest()
     elif self.state.transition == 'EMLTN_BYSGMT_NOWAIT':
       self.resolve.putApiRequest()
@@ -101,7 +110,7 @@ class WcEmltnDirector(AppDirector):
 # ---------------------------------------------------------------#
 class WcResolveUnit(AppResolveUnit):
   def __init__(self):
-    self.__dict__['INIT'] = self.INIT
+    self.__dict__['XML_TO_SAS'] = self.XML_TO_SAS
     self.__dict__['TXN_REPEAT'] = self.TXN_REPEAT
     self.__dict__['TXN_SGMT_REPEAT'] = self.TXN_SGMT_REPEAT
     self.__dict__['TXN_SGMT_RESTACK'] = self.TXN_SGMT_RESTACK
@@ -111,21 +120,78 @@ class WcResolveUnit(AppResolveUnit):
     self.txnCount = 0
 
   # -------------------------------------------------------------- #
-  # _start
-  # ---------------------------------------------------------------#  
-  def _start(self):
-    pass    
-  # -------------------------------------------------------------- #
-  # INIT - evalTxnCount
-  # - state.current = 'INIT'
+  # XML_TO_SAS - evalTxnCount
+  # - state.current = 'XML_TO_SAS'
   # - state.next = 'TXN_REPEAT'
   # ---------------------------------------------------------------#
-  def INIT(self):
-    self.state.transition = 'EMLTN_INPUT_PRVDR'
+  def XML_TO_SAS(self):
+    self.state.transition = 'XML_TO_SAS'
     self.state.inTransition = True
-    self.state.next = 'TXN_REPEAT'      
+    self.state.next = 'TXN_REPEAT'
     self.state.hasNext = True
     return self.state
+
+  # -------------------------------------------------------------- #
+  # _start
+  # ---------------------------------------------------------------#                                          
+  def _start(self, tsXref):
+    
+    logger.info('[START] landriveMount')
+    self.tsXref = tsXref
+    self.mountPath = 'webapi/wcemltn/session'
+    logger.info('landrive mount path : ' + self.mountPath)
+    unMounted = self.runProcess(['grep','-w',self.mountPath,'/etc/mtab'],returnRc=True)
+    if not unMounted:
+      logger.info('landrive is already mounted : ' + self.mountPath)
+      return
+
+    logger.info('wcemltn service base : ' + self.pmeta['localBase'])
+    cifsEnv = os.environ['HOME'] + '/.wcemltn/cifs_env'
+    with open(cifsEnv,'w') as fhw:
+      fhw.write('ADUSER=%s\n' % os.environ['USER'])
+      fhw.write("DFSPATH='%s'\n" % self.pmeta['localBase'])
+      fhw.write('MOUNTINST=%s\n' % self.mountPath)
+    
+    credentials = os.environ['HOME'] + '/.landrive'
+    runDir = os.environ['HOME'] + '/.wcemltn'
+    sysArgs = ['sudo','landrive.sh','--mountcifs','--cifsenv','cifs_env','--credentials',credentials]
+    self.runProcess(sysArgs,cwd=runDir)
+
+    sysArgs = ['grep','-w',self.mountPath,'/etc/mtab']
+    unMounted = self.runProcess(['grep','-w',self.mountPath,'/etc/mtab'],returnRc=True)
+    if unMounted:
+      errmsg = 'failed to mount landrive : ' + self.mountPath
+      logger.error(errmsg)
+      raise Exception(errmsg)
+
+    linkPath = self.pmeta['linkBase']
+    logger.info('landrive symlink : ' + linkPath)
+    self.landrive = '/lan/%s/%s' % (os.environ['USER'], self.mountPath)
+    logger.info('landrive : ' + self.landrive)
+    if not os.path.exists(linkPath):
+      self.runProcess(['ln','-s', self.landrive, linkPath])
+    self.putCredentials()
+
+  # -------------------------------------------------------------- #
+  # putCredentials -
+  # ---------------------------------------------------------------#
+  def putCredentials(self):
+
+    credentials = os.environ['HOME'] + '/.landrive'
+    username = None
+    password = None
+    with open(credentials,'r') as fhr:
+      for credItem in fhr:
+        credItem = credItem.strip() 
+        if 'username' in credItem:
+          username = credItem.split('=')[1]
+        elif 'password' in credItem:
+          password = credItem.split('=')[1]
+    if not username or not password:
+      raise Exception('user landrive credentials are not valid')
+    dbKey = 'CRED|' + self.jobId
+    credentials = username + ':' + password
+    self._leveldb.Put(dbKey,credentials)
 
   # -------------------------------------------------------------- #
   # getTxnCount -
@@ -269,10 +335,10 @@ class WcResolveUnit(AppResolveUnit):
   # ---------------------------------------------------------------#
   def putApiRequest(self):
     
-    if self.state.transition == 'EMLTN_INPUT_PRVDR':
+    if self.state.transition == 'XML_TO_SAS':
       classRef = 'wcEmltnInputPrvdr:WcEmltnInputPrvdr'
       pdata = (self.state.jobId,classRef)
-      params = '{"type":"delegate","id":"%s","responder":"self","service":"%s","args":[]}' % pdata
+      params = '{"type":"director","id":"%s","responder":"self","service":"%s","args":[]}' % pdata
       data = [('job',params)]
       apiUrl = 'http://localhost:5000/api/v1/job/1'
       response = requests.post(apiUrl,data=data)
@@ -358,7 +424,7 @@ class WcEmltnListener(AppListener):
 # ---------------------------------------------------------------#
 class WcEmailUnit(AppResolveUnit):
   def __init__(self):
-    self.__dict__['INIT'] = self.INIT
+    self.__dict__['XML_TO_SAS'] = self.XML_TO_SAS
     self.__dict__['TXN_REPEAT'] = self.TXN_REPEAT
     self.__dict__['TXN_SGMT_REPEAT'] = self.TXN_SGMT_REPEAT
     self.__dict__['TXN_SGMT_RESTACK'] = self.TXN_SGMT_RESTACK
@@ -387,9 +453,9 @@ class WcEmailUnit(AppResolveUnit):
     smtp.quit()
 
   # -------------------------------------------------------------- #
-  # INIT
+  # XML_TO_SAS
   # ---------------------------------------------------------------#
-  def INIT(self, context):
+  def XML_TO_SAS(self, context):
     
     subject, body = self.getEmailBody(context)
     script = 'wcInputXml2Sas'
@@ -457,6 +523,7 @@ CI workerscomp emulation team
       subject = 'ci workerscomp emulation has errored :<'
       return (subject, errBody)
     return ('','')
+
 
 
 
