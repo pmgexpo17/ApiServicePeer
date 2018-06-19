@@ -1,28 +1,34 @@
+from apiservice import AppDirector, AppResolveUnit, SasScriptPrvdr, logger
+from jinja2 import Environment, PackageLoader
 import os, sys, time
 import logging
 import json
 import requests, re
-from apiservice import AppDelegate, logger
 
 # -------------------------------------------------------------- #
 # WcEmltnInputPrvdr
 # ---------------------------------------------------------------#
 class WcEmltnInputPrvdr(AppDirector):
 
-  def __init__(self, leveldb, jobId):
+  def __init__(self, leveldb, jobId, caller=None, callee=None):
     super(WcEmltnInputPrvdr,self).__init__(leveldb, jobId)
+    self.caller = caller
+    self.callee = callee
     self.appType = 'delegate'
     self.state.hasNext = True
-    self.resolve = WcResolveUnit(leveldb)
+    self.resolve = WcResolveUnit(leveldb, self.callee)
     self.resolve.state = self.state
 
   # -------------------------------------------------------------- #
   # _start
   # ---------------------------------------------------------------#                                          
   def _start(self):
-    scriptPrvdr = WcScriptPrvdr(self._leveldb,jobId=self.jobId)
-    self.resolve.pmeta = scriptPrvdr()
-    self.resolve._start()
+    logger.info('caller : ' + str(self.caller))    
+    logger.info('callee : ' + str(self.callee))
+    scriptPrvdr = WcScriptPrvdr(self._leveldb,self.jobId,self.caller)
+    tsXref, pmeta = scriptPrvdr()
+    self.resolve.pmeta = pmeta
+    self.resolve._start(tsXref)
 
   # -------------------------------------------------------------- #
   # advance
@@ -36,17 +42,8 @@ class WcEmltnInputPrvdr(AppDirector):
         self.state.inTransition = False
       else:
         raise Exception('WcEmltnInputPrvdr server process failed, rc : %d' % signal)
-
-  # -------------------------------------------------------------- #
-  # getProgramMeta
-  # ---------------------------------------------------------------#                                          
-  def getProgramMeta(self):
-    logger.debug('[START] getProgramMeta')
-    dbKey = 'PMETA|' + self.jobId
-    try:
-      _pmeta = self._leveldb.Get(dbKey)
-    except KeyError:
-      raise Exception('EEEOWWW! pmeta json document not found : ' + dbKey)
+    self.state.current = self.state.next
+    return self.state
 
   # -------------------------------------------------------------- #
   # onComplete
@@ -66,23 +63,23 @@ class WcEmltnInputPrvdr(AppDirector):
   def quicken(self):      
     logger.info('state transition : ' + self.state.transition)
     if self.state.transition == 'NORMALISE_XML':
-      self.resolve.putApiRequest()
+      self.putApiRequest(201)
 
   # -------------------------------------------------------------- #
   # putApiRequest
   # ---------------------------------------------------------------#
   def putApiRequest(self, signal):
-    if self.state.transition == 'STREAM_TO_SAS':
-      classRef = 'xmlToStream:XmlToStream'
-      pdata = (self.state.jobId,classRef)
-      params = '{"type":"director","id":"%s","responder":"self","service":"%s","args":[]}' % pdata
+    if self.state.transition == 'NORMALISE_XML':
+      classRef = 'normalizeXml:NormalizeXml'
+      pdata = (classRef,json.dumps({'scaller':self.caller,'caller':self.jobId}))
+      params = '{"type":"director","id":null,"responder":"self","service":"%s","args":[],"kwargs":%s}' % pdata
       data = [('job',params)]
-      apiUrl = 'http://localhost:5000/api/v1/job/1'
-      response = requests.post(apiUrl,data=data)
+      apiUrl = 'http://localhost:5000/api/v1/job'
+      response = requests.put(apiUrl,data=data)
       logger.info('api response ' + response.text)
     elif self.state.complete:
       classRef = 'wcEmltnService:WcEmltnDirector'
-      pdata = (self.jobId,classRef,json.dumps({'signal':signal}))
+      pdata = (self.caller,classRef,json.dumps({'signal':signal}))
       params = '{"type":"director","id":"%s","service":"%s","kwargs":%s,"args":[]}' % pdata
       data = [('job',params)]
       apiUrl = 'http://localhost:5000/api/v1/job/1'
@@ -93,8 +90,10 @@ class WcEmltnInputPrvdr(AppDirector):
 # WcResolveUnit
 # ---------------------------------------------------------------#
 class WcResolveUnit(AppResolveUnit):
-  def __init__(self, leveldb):
+  
+  def __init__(self, leveldb, callee):
     self._leveldb = leveldb
+    self.callee = callee
     self.__dict__['NORMALISE_XML'] = self.NORMALISE_XML
     self.__dict__['IMPORT_TO_SAS'] = self.IMPORT_TO_SAS
     self.__dict__['GET_PMOV_DATA'] = self.GET_PMOV_DATA
@@ -104,35 +103,91 @@ class WcResolveUnit(AppResolveUnit):
   # -------------------------------------------------------------- #
   # _start
   # ---------------------------------------------------------------#
-  def _start(self):
-    dbKey = 'CRED|' + self.jobId
-    credentials = self._leveldb.Get(dbKey)
-    stashPath = '/%s/%s' % (self.pmeta['stashHost'],self.pmeta['stashBase'])
-    uriPath = '%s/%s/%s?raw' % (stashPath,self.pmeta['schemaRepo'],self.pmeta['xmlSchema'])
-    xmlSchema = '%s/%s' %  (self.pmeta['ciwork'],self.pmeta['xmlSchema'])
-    self.sysCmd(['curl','-u',credentials,uriPath,'-o',xmlSchema])
-    self.importXmlSchema(xmlSchema)
+  def _start(self, tsXref):
+    logger.info('[START] WcResolveUnit._start')
+    self.tsXref = tsXref
+    self.state.current = 'NORMALISE_XML'
+    trnswork = self.pmeta['ciwork'] + '/ssnwork/trnswrk'
+    cnvtwork = self.pmeta['ciwork'] + '/ssnwork/cnvtwrk'
+    assets = self.pmeta['ciwork'] + '/assets'
+    self.sysCmd(['mkdir','-p',trnswork])
+    self.sysCmd(['mkdir',cnvtwork])
+    self.sysCmd(['mkdir',assets])    
+    xmlSchema = '%s/%s' % (self.pmeta['assetLib'], self.pmeta['xmlSchema'])
+    self.sysCmd(['cp',xmlSchema,assets]) # copy to here for normalizer to use
+    try:
+      self.makeSasFormat(xmlSchema)
+    except Exception as ex:
+      logger.info('error making sas format dict : ' + str(ex))
+      raise
     
   # -------------------------------------------------------------- #
-  # importXmlSchema
+  # makeSasFormat
   # ---------------------------------------------------------------#
-  def importXmlSchema(self, xmlSchema):
+  def makeSasFormat(self, xmlSchema):
     
     with open(xmlSchema,'r') as fhr:
       schemaDoc = json.load(fhr)
+    ukeyOrder = schemaDoc['uKeyOrder']
     tableDefn = schemaDoc['tableDefn']
     columnOrder = schemaDoc['columnOrder']
     columnDefn = schemaDoc['columnDefn']
 
+    for tableName in ukeyOrder:
+      self.putUKeySasDefn(tableName, tableDefn[tableName], columnDefn)
+      
     sasDefn = {}
-    for tableName in sorted(tableDefn):
-      _sasDefn = []
-      for nodeKey in columnOrder[tableName]
+    for tableName, detail in tableDefn.items():
+      _sasDefn = self.getFKeySasDefn(detail['fkeyRef'])
+      for nodeKey in columnOrder[tableName]:
         for defnItem in columnDefn[nodeKey]:
           del(defnItem[1])
           _sasDefn += self.getSasFormat(defnItem)
       sasDefn[tableName] = _sasDefn
+      if tableName == 'Address':
+        logger.info('address sas defn : ' + str(_sasDefn))
     self.sasDefn = sasDefn
+
+  # -------------------------------------------------------------- #
+  # putUKeySasDefn
+  # ---------------------------------------------------------------#
+  def putUKeySasDefn(self, tableName, detail, columnDefn):
+    logger.info('table : ' + tableName)
+    ukeyRef = detail['ukeyDefn'].pop(0)
+    ukeyDefn = detail['ukeyDefn']
+    fkeyRef = detail['fkeyRef']
+
+    sasDefn = []
+    if fkeyRef:
+      dbKey = '%s|%s|SASFMT' % (self.tsXref, fkeyRef)
+      sasDefn = self.retrieve(dbKey)
+    for index in ukeyDefn:
+      defnItem = list(columnDefn[ukeyRef][index])
+      del(defnItem[1])
+      sasDefn += self.getSasFormat(defnItem)
+    dbKey = '%s|%s|SASFMT' % (self.tsXref, tableName)
+    logger.info('sas format : ' + str(sasDefn))
+    self._leveldb.Put(dbKey,json.dumps(sasDefn))
+
+  # -------------------------------------------------------------- #
+  # getFKeySasDefn
+  # ---------------------------------------------------------------#
+  def getFKeySasDefn(self, fkeyRef):
+    if not fkeyRef:
+      return []
+    dbKey = '%s|%s|SASFMT' % (self.tsXref, fkeyRef)
+    return self.retrieve(dbKey)
+
+  # -------------------------------------------------------------- #
+  # retrieve
+  # ---------------------------------------------------------------#
+  def retrieve(self, dbKey, noValue=None):
+    try:
+      record = self._leveldb.Get(dbKey)
+      return json.loads(record)
+    except KeyError:
+      logger.error('key not found in key storage : ' + dbKey)
+      return noValue
 
   # -------------------------------------------------------------- #
   # getSasFormat
@@ -155,19 +210,28 @@ class WcResolveUnit(AppResolveUnit):
 	# IMPORT_TO_SAS
 	# ---------------------------------------------------------------#
   def IMPORT_TO_SAS(self):
+    trnswork = self.pmeta['ciwork'] + '/ssnwork/trnswork'
+    params = {'trnswork':trnswork,'jobId':self.callee}
     env = Environment(loader=PackageLoader('apiservice', 'xmlToSas'),trim_blocks=True)
-    template = env.get_template('streamToSas.jinja')    
+    template = env.get_template('streamToSas.sas')    
     for tableName in sorted(self.sasDefn):
+      logger.info('tableName : ' + tableName)
+      params['tableName'] = tableName      
       sasDefn = self.sasDefn[tableName]
+      logger.info('sas format defn : ' + str(sasDefn))
       sasPrgm = '%s/%s.sas' % (self.pmeta['progLib'],tableName)
-      template.stream(jobId=self.jobId,tableName=tableName,sasDefn=sasDefn).dump(sasPrgm)
-
+      template.stream(params=params,sasDefn=sasDefn).dump(sasPrgm)
       logfile = '%s/log/%s.log' % (self.pmeta['progLib'],tableName)
+      logger.info('run %s in subprocess ...' % sasPrgm)
       sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
       self.runProcess(sysArgs)
-    self.state.next = 'GET_PMOV_DATA'
-    self.state.hasNext = True
+      break
+    self.state.complete = True
+    self.state.hasNext = False
     return self.state
+#    self.state.next = 'GET_PMOV_DATA'
+#    self.state.hasNext = True
+#    return self.state
 
 	# -------------------------------------------------------------- #
 	# GET_PMOV_DATA
@@ -232,42 +296,48 @@ class WcResolveUnit(AppResolveUnit):
     self.runProcess(sysArgs)
     self.state.hasNext = False
     self.state.complete = True
+    return self.state
     
 # -------------------------------------------------------------- #
 # WcScriptPrvdr
 # ---------------------------------------------------------------#
 class WcScriptPrvdr(SasScriptPrvdr):
 
+  def __init__(self, leveldb, jobId, caller):
+    self._leveldb = leveldb
+    self.jobId = jobId
+    self.caller = caller
+    self.pmeta = None
+      
   # -------------------------------------------------------------- #
   # __call__
   # ---------------------------------------------------------------#
   def __call__(self):
-
-    pmeta = self.getProgramMeta()
-    dbKey = 'TSXREF|' + self.jobId
+    self.pmeta = self.getProgramMeta()
+    dbKey = 'TSXREF|' + self.caller
     try:
       tsXref = self._leveldb.Get(dbKey)
     except KeyError:
       raise Exception('EEOWW! tsXref param not found : ' + dbKey)
-    self.compileSessionVars('wcInputXml2Sas.sas')
+    self.compileScript('wcInputXml2Sas.sas')
+    return (tsXref, self.pmeta)
 
   # -------------------------------------------------------------- #
   # getProgramMeta
   # ---------------------------------------------------------------#
   def getProgramMeta(self):
-    dbKey = 'PMETA|' + self.state.jobId
+    dbKey = 'PMETA|' + self.caller
     try:
       pmetadoc = self._leveldb.Get(dbKey)
     except KeyError:
       raise Exception('EEOWW! pmeta json document not found : ' + dbKey)
-
-    _pmeta = json.loads(pmetadoc)
-    pmeta = _pmeta['WcInputXmlToSas']
+    pmetaAll = json.loads(pmetadoc)
+    pmeta = pmetaAll['WcInputXml2Sas']
     _globals = pmeta['globals'] # append global vars in this list
     del(pmeta['globals'])
     if _globals[0] == '*':
-      pmeta.update(_pmeta['Global'])
+      pmeta.update(pmetaAll['Global'])
     else:
       for item in _globals:
-        pmeta[item] = _pmeta['Global'][item]
+        pmeta[item] = pmetaAll['Global'][item]
     return pmeta
