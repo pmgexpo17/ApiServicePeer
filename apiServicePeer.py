@@ -48,8 +48,8 @@ class PutJob(Resource):
     if not args:
       return {'status':500,'error':'empty form args'}, 500
     try:
-      if 'pmeta' in args:
-        jobId = str(uuid.uuid4())
+      jobId = str(uuid.uuid4())      
+      if args['pmeta']:
         dbKey = 'PMETA|' + jobId
         g.prvdr.db.Put(dbKey, args['pmeta'])
         params = json.loads(args['job'])
@@ -58,10 +58,10 @@ class PutJob(Resource):
         return {'status':201,'job_id':jobId}, 201
       else:
         logger.info('pmeta not in request')
-      if 'job' in args:
+      if args['job']:
         params = json.loads(args['job'])
         logger.info('job args : ' + str(params))
-        jobId = g.prvdr.promote(params)
+        jobId = g.prvdr.promote(params,jobId=jobId)
         return {'status':201,'job_id':jobId}, 201
       return {'status':500,'error':"form parameter 'job' not found"}, 500
     except Exception as ex:
@@ -75,7 +75,7 @@ class PostJob(Resource):
   def post(self, jobCount):
     setPrvdr()
     args = parser.parse_args()
-    if args and 'job' in args:
+    if args['job']:
       params = json.loads(args['job'])
       logger.info('job args : ' + str(params))
       try:
@@ -87,7 +87,7 @@ class PostJob(Resource):
     else:
       return {'status':500,'error':"form parameter 'job' not found"}, 500
 
-parser.add_argument('jobId')
+parser.add_argument('id')
 parser.add_argument('dataKey')
 
 # adds a new program job item, and runs it (TO DO: at the datetime specified)
@@ -95,8 +95,8 @@ class DataJob(Resource):
 
   def get(self):
     setPrvdr()
-    args = parser.parse_args()
-    if args and 'id' in args:
+    params = parser.parse_args()
+    if args['id'] and args['dataKey']:
       params = json.loads(args)
       logger.info('job args : ' + str(params))
       try:      
@@ -106,7 +106,7 @@ class DataJob(Resource):
       else:
         return streamGen, 201
     else:
-      return {'status':500,'error':"form parameter 'job' not found"}, 500
+      return {'status':500,'error':"either 'id' and 'dataKey' form parameter not found"}, 500
 
 ##
 ## Actually setup the Api resource routing here
@@ -129,4 +129,4 @@ if __name__ == '__main__':
   logger.addHandler(consoleHandler)
   logger.setLevel(logging.INFO)
 
-  flask.run(debug=True,use_reloader=False)
+  flask.run(debug=True,use_reloader=False) 
