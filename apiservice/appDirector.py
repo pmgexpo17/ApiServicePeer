@@ -17,18 +17,14 @@ from threading import RLock
 from subprocess import Popen, PIPE, call as subcall
 import logging
 import os
+import re
 
 logger = logging.getLogger('apscheduler')
 
 # -------------------------------------------------------------- #
-# AppDelegate
+# SubProcHandler
 # ---------------------------------------------------------------#
-class AppDelegate(object):
-
-  def __init__(self, leveldb, jobId=None):
-    self._leveldb = leveldb
-    self.jobId = jobId
-    self.appType = 'delegate'
+class SubProcHandler(object):
 
   # ------------------------------------------------------------ #
   # sysCmd
@@ -73,17 +69,17 @@ class AppDelegate(object):
 # -------------------------------------------------------------- #
 # AppDirector
 # ---------------------------------------------------------------#
-class AppDirector(AppDelegate):
+class AppDirector(SubProcHandler):
   __metaclass__ = ABCMeta
 
   def __init__(self, leveldb, jobId):
-    super(AppDirector,self).__init__(leveldb, jobId=jobId)
+    self._leveldb = leveldb
+    self.jobId = jobId
     self.state = AppState(jobId)
     self.resolve = None
         
   # run wrkcmp emulation by apScheduler
   def __call__(self, *argv, **kwargs):
-
     with self.state.lock:
       if self.state.status == 'STOPPED':
         try:
@@ -125,7 +121,7 @@ class AppDirector(AppDelegate):
         state = self.advance()
         logger.info('next state : ' + self.state.current)
       if state.complete:
-        self.onComplete(self)
+        self.onComplete()
     except Exception as ex:
       #self.mailer[state.current]('ERROR')
       self.onError(str(ex))
@@ -180,11 +176,7 @@ class AppState(object):
 # -------------------------------------------------------------- #
 # AppResolveUnit
 # ---------------------------------------------------------------#
-class AppResolveUnit(object):
-  def __init__(self):
-    pass
-    # setup resolve state mapping here eg -->
-    # self.__dict__['INIT'] = self.INIT
+class AppResolveUnit(SubProcHandler):
 
   def __getitem__(self, key):
       return self.__dict__[key]
@@ -210,8 +202,9 @@ class AppResolveUnit(object):
 class AppListener(object):
   __metaclass__ = ABCMeta
 
-  def __init__(self, leveldb):
+  def __init__(self, leveldb, jobId):
     self._leveldb = leveldb
+    self.jobId = jobId
 
   # -------------------------------------------------------------- #
   # addJob - add a live job id
@@ -240,9 +233,12 @@ class StreamPrvdr(object):
 # -------------------------------------------------------------- #
 # SasScriptPrvdr
 # ---------------------------------------------------------------#
-class SasScriptPrvdr(AppDelegate):
+class SasScriptPrvdr(SubProcHandler):
   __metaclass__ = ABCMeta
 
+  def __init__(self):
+    self.pmeta = None
+    
   # -------------------------------------------------------------- #
   # getProgramMeta
   # ---------------------------------------------------------------#
@@ -255,7 +251,7 @@ class SasScriptPrvdr(AppDelegate):
   # ---------------------------------------------------------------#
   def compileScript(self, sasfile, incItems=None):
     logger.debug('progLib : ' + self.pmeta['progLib'])
-    tmpltName = '%s/%s' % (self.pmeta['tmpltLib'], sasfile)
+    tmpltName = '%s/%s' % (self.pmeta['assetLib'], sasfile)
     sasFile = '%s/%s' % (self.pmeta['progLib'], sasfile)
     fhr = open(tmpltName,'r')
     _puttext = '  %let {} = {};\n'
@@ -274,4 +270,3 @@ class SasScriptPrvdr(AppDelegate):
     for itemKey, metaItem in self.pmeta.items():
       if not incItems or itemKey in incItems:
         fhw.write(puttext.format(itemKey, metaItem))
-
