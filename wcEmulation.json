@@ -6,19 +6,20 @@ pmeta={
   },
   "Global" : {
     "appScope" : "DEV",
+    "assetLib" : "/data/BASESAS/saslib/ci/emulation/wrkcmp/dev1/assets",    
     "ciwork" : "/data/projectarea/wcEmltnService",
     "logLevel" : "ERROR",
     "macroLib" : "/data/BASESAS/saslib/ci/emulation/wrkcmp/dev1/sasautos",
+    "progLib" : "/data/projectarea/wcEmltnService/saslib",
     "stashHost" : "https://bitbucket.int.corp.sun/projects",
     "stashBase" : "PI/repos/ci/browse/emulation/AutoEmltnWC",
     "userEmail" : "peter.mcgill@suncorp.com.au",
     "localBase" : "//int.corp.sun/GroupData/actuary/rateengn/Commercial/workerscomp/emulation/service",
-    "linkBase" : "/apps/webapi/wcemltn"
+    "linkBase" : "/apps/webapi/wcemltn/session"
   },
   "WcEmltnDirector" : {
     "codeLib" : "/data/BASESAS/saslib/ci/emulation/wrkcmp/dev1/calcorder",
     "inputSrc" : "final_wc_201803",
-    "progLib" : "/data/projectarea/wcEmltnService/saslib",
     "program" : "MAIN:ALL:ADDTNL:ALL:EXTNSN:ALL:ADDTNL:ALL",
     "rateLib" : "/data/BASE/rateslib/ci/emulation/wrkcmp/dev1",
     "reRun" : "N",
@@ -32,14 +33,14 @@ pmeta={
     "pmovDsId" : "1804",
     "S3Path" : "/idw/data/projectarea/pj49/actsydney/wc/basedata",
     "runMode" : 1,
-    "schemaRepo" : "webapi/apiservice/xmlToNormal",				
-    "xmlSchema" : "GipeCIPricingSchema.json",
+    "schemaRepo" : "webapi/apiservice/xmlToSas",				
+    "xmlSchema" : "wcXmlSchema.json",
     "globals" : ["*"]
   },
   "NormalizeXml" : {
-    "inputXmlFile" : "WC_201804.txt",
+    "inputXmlFile" : "WC_201804x.txt",
     "delimiter" : "<>",
-    "xmlSchema" : "GipeCIPricingSchema.json",		
-    "globals" : ["linkBase"]
+    "xmlSchema" : "wcXmlSchema.json",
+    "globals" : ["ciwork","linkBase"]
   }
 }
