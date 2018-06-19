@@ -1,11 +1,11 @@
-from apiservice import AppDirector, AppState, AppResolveUnit, AppListener, AppDelegate, SasScriptPrvdr, logger
+from apiservice import SubProcHandler, AppDirector, AppState, AppResolveUnit, AppListener, SasScriptPrvdr, logger
 import datetime
 from email.mime.text import MIMEText
 from threading import RLock
 import logging
 import json
 import os, sys, time
-import requests, re
+import requests
 import smtplib
 import uuid
 
@@ -28,7 +28,7 @@ class WcEmltnDirector(AppDirector):
   # ---------------------------------------------------------------#                                          
   def _start(self):
     logger.debug('[START] loadProgramMeta')
-    scriptPrvdr = WcScriptPrvdr(self.leveldb, jobId=self.jobId)
+    scriptPrvdr = WcScriptPrvdr(self._leveldb, self.jobId)
     pmeta = scriptPrvdr()
     self.resolve.pmeta = pmeta
     self.resolve._start()
@@ -45,6 +45,8 @@ class WcEmltnDirector(AppDirector):
         logger.info('state transition is resolved, advancing ...')
         self.state.transition = 'NA'
         self.state.inTransition = False
+        self.state.completed = True
+        self.state.hasNext = False
       else:
         raise Exception('WcEmltnInputPrvdr server process failed, rc : %d' % signal)
     elif self.state.transition == 'EMLTN_BYSGMT_NOWAIT':
@@ -76,9 +78,32 @@ class WcEmltnDirector(AppDirector):
   def quicken(self):      
     logger.info('state transition : ' + self.state.transition)
     if self.state.transition == 'XML_TO_SAS':
-      self.resolve.putApiRequest()
+      self.putApiRequest()
     elif self.state.transition == 'EMLTN_BYSGMT_NOWAIT':
-      self.resolve.putApiRequest()
+      self.putApiRequest()
+
+  # -------------------------------------------------------------- #
+  # putApiRequest
+  # ---------------------------------------------------------------#
+  def putApiRequest(self):
+    
+    if self.state.transition == 'XML_TO_SAS':
+      classRef = 'wcEmltnInputPrvdr:WcEmltnInputPrvdr'
+      pdata = (classRef,json.dumps({'caller':self.jobId}))
+      params = '{"type":"director","id":null,"responder":"self","service":"%s","args":[],"kwargs":%s}' % pdata
+      data = [('job',params)]
+      apiUrl = 'http://localhost:5000/api/v1/job'
+      response = requests.put(apiUrl,data=data)
+      logger.info('api response ' + response.text)
+    elif self.state.transition == 'EMLTN_BYSGMT_NOWAIT':      
+      classRef = 'wcEmltnService:WcEmltnBySgmt'
+      args = [self.pmeta['progLib'], self.txnNum]
+      pdata = (self.jobId,classRef, json.dumps(args))
+      params = '{"type":"delegate","id":"%s","responder":"listener","service":"%s","args":%s}' % pdata
+      data = [('job',params)]
+      apiUrl = 'http://localhost:5000/api/v1/job/%d' % self.sgmtCount
+      response = requests.post(apiUrl,data=data)
+      logger.info('api response ' + response.text)
 
 # -------------------------------------------------------------- #
 # WcResolveUnit
@@ -112,6 +137,7 @@ class WcResolveUnit(AppResolveUnit):
   def _start(self):
     
     logger.info('[START] landriveMount')
+    self.state.current = 'XML_TO_SAS'
     self.mountPath = 'webapi/wcemltn/session'
     logger.info('landrive mount path : ' + self.mountPath)
     unMounted = self.sysCmd(['grep','-w',self.mountPath,'/etc/mtab'])
@@ -144,7 +170,6 @@ class WcResolveUnit(AppResolveUnit):
     logger.info('landrive : ' + self.landrive)
     if not os.path.exists(linkPath):
       self.sysCmd(['ln','-s', self.landrive, linkPath])
-    self.putCredentials()
 
   # -------------------------------------------------------------- #
   # getTxnCount -
@@ -169,14 +194,11 @@ class WcResolveUnit(AppResolveUnit):
   # ---------------------------------------------------------------#
   def TXN_REPEAT(self):
     if self.txnCount == 0:
-      #self.compileSessionVars('batchTxnScheduleWC.sas')
       self.state.next = 'TXN_REPEAT'
       self.getTxnCount()
       self.state.hasNext = True
       return self.state
     elif self.txnNum == self.txnCount:
-      #incItems = ['ciwork','macroLib','progLib','userEmail']
-      #self.compileSessionVars('restackTxnOutputWC.sas',incItems=incItems)
       self.state.next = 'COMPLETE'
       self.restackTxnOutputAll()
       self.state.complete = True
@@ -204,7 +226,6 @@ class WcResolveUnit(AppResolveUnit):
   # - state.next = 'TXN_SGMT_RESTACK'
   # ---------------------------------------------------------------#
   def TXN_SGMT_REPEAT(self):
-    #self.compileSessionVars('batchScheduleWC.sas')
     self.state.transition = 'EMLTN_BYSGMT_NOWAIT'
     self.state.inTransition = True
     self.state.next = 'TXN_SGMT_RESTACK'      
@@ -233,8 +254,6 @@ class WcResolveUnit(AppResolveUnit):
   # - state.next = 'TXN_REPEAT'
   # ---------------------------------------------------------------#
   def TXN_SGMT_RESTACK(self):
-    #incItems = ['ciwork','macroLib']
-    #self.compileSessionVars('restackSgmtOutputWC.sas',incItems=incItems)
     self.state.next = 'TXN_REPEAT'
     self.restackSgmtOutputAll()
     self.sgmtCount = 0
@@ -265,36 +284,13 @@ class WcResolveUnit(AppResolveUnit):
     if self.sgmtCount > 0:
       fhw.write(puttext.format('sgmtCount', self.sgmtCount))
 
-  # -------------------------------------------------------------- #
-  # putApiRequest
-  # ---------------------------------------------------------------#
-  def putApiRequest(self):
-    
-    if self.state.transition == 'XML_TO_SAS':
-      classRef = 'wcEmltnInputPrvdr:WcEmltnInputPrvdr'
-      pdata = (self.state.jobId,classRef)
-      params = '{"type":"director","id":"%s","responder":"self","service":"%s","args":[]}' % pdata
-      data = [('job',params)]
-      apiUrl = 'http://localhost:5000/api/v1/job/1'
-      response = requests.post(apiUrl,data=data)
-      logger.info('api response ' + response.text)
-    elif self.state.transition == 'EMLTN_BYSGMT_NOWAIT':      
-      classRef = 'wcEmltnService:WcEmltnBySgmt'
-      args = [self.pmeta['progLib'], self.txnNum]
-      pdata = (self.state.jobId,classRef, json.dumps(args))
-      params = '{"type":"delegate","id":"%s","responder":"listener","service":"%s","args":%s}' % pdata
-      data = [('job',params)]
-      apiUrl = 'http://localhost:5000/api/v1/job/%d' % self.sgmtCount
-      response = requests.post(apiUrl,data=data)
-      logger.info('api response ' + response.text)
-
 # -------------------------------------------------------------- #
 # WcEmltnBySgmt
 # ---------------------------------------------------------------#
-class WcEmltnBySgmt(AppDelegate):
+class WcEmltnBySgmt(SubProcHandler):
 
   def __init__(self, leveldb):
-    super(WcEmltnBySgmt, self).__init__(leveldb)
+    self._leveldb = leveldb
     
   # -------------------------------------------------------------- #
   # runEmltnBySgmt
@@ -312,8 +308,8 @@ class WcEmltnBySgmt(AppDelegate):
 # ---------------------------------------------------------------#
 class WcEmltnListener(AppListener):
 
-  def __init__(self, leveldb):
-    super(WcEmltnListener, self).__init__(leveldb)
+  def __init__(self, leveldb, jobId):
+    super(WcEmltnListener, self).__init__(leveldb, jobId)
     self.state = None
     self.jobIdList = []
 
@@ -347,9 +343,9 @@ class WcEmltnListener(AppListener):
   # -------------------------------------------------------------- #
   # putApiRequest
   # ---------------------------------------------------------------#
-  def putApiRequest(self,signal):
+  def putApiRequest(self, signal):
     classRef = 'wcEmltnService:WcEmltnDirector'
-    pdata = (self.state.jobId,classRef, json.dumps({'signal':signal}))
+    pdata = (self.jobId,classRef, json.dumps({'signal':signal}))
     params = '{"type":"director","id":"%s","service":"%s","kwargs":%s,"args":[]}' % pdata
     data = [('job',params)]
     apiUrl = 'http://localhost:5000/api/v1/job/1'
@@ -446,15 +442,10 @@ class WcEmailUnit(AppResolveUnit):
 #    errNote = '\nsystem message : %s\n' % errMsg if errMsg else ''
     errBody = '''
 Hi CI workerscomp team,
-
 CI workerscomp %s.sas has errored :<
-
 Please inspect %s.log to get the error details
-
 Your workerscomp emulation log region is : %s/log
-
 Then contact us for further investigation
-
 Thanks and Regards,
 CI workerscomp emulation team
 '''
@@ -467,61 +458,62 @@ CI workerscomp emulation team
 # WcScriptPrvdr
 # ---------------------------------------------------------------#
 class WcScriptPrvdr(SasScriptPrvdr):
-
+  
+  def __init__(self, leveldb, jobId):
+    self._leveldb = leveldb
+    self.jobId = jobId
+    
   # -------------------------------------------------------------- #
   # __call__
   # ---------------------------------------------------------------#
   def __call__(self):
-
-    _pmeta = self.getProgramMeta()
-    dbKey = 'TSXREF|' + self.jobId
-    tsXref = datetime.datetime.now().strftime('%y%m%d%H%M%S')
-    self._leveldb.Put(dbKey, tsXref)
-    ciwork = pmeta['Global']['ciwork']
-    session = '/WC' + tsXref
-    ciwork += session
-    self.sysCmd(['mkdir','-p',ciwork])
-    proglib = ciwork + '/saslib'
-    self.sysCmd(['mkdir',proglib])
-    #tmpltlib = proglib + '/tmplt'
-    #self.sysCmd(['mkdir',tmpltlib])
-    logdir = proglib + '/log'
-    self.sysCmd('mkdir',logdir)
-    pmeta['Global']['ciwork'] = ciwork
-    pmeta['Global']['progLib'] = proglib
-    # write the pmeta session dict back for delegates to use
-    self._leveldb.Put(dbKey, json.dumps(pmeta))
-    tmpltPkg = pmeta['Global']['tmpltLib'] + '/*.*'
-    # copy wcemltn templates package to the session dir
-    #self.sysCmd(['cp',tmpltPkg,tmpltlib])
-    self.compileSessionVars('batchTxnScheduleWC.sas')    
-    incItems = ['ciwork','macroLib','progLib','userEmail']
-    self.compileSessionVars('restackTxnOutputWC.sas',incItems=incItems)
-    self.compileSessionVars('batchScheduleWC.sas')
+    self.pmeta = self.getProgramMeta()
+    self.compileScript('batchTxnScheduleWC.sas')    
+    self.compileScript('batchScheduleWC.sas')
     incItems = ['ciwork','macroLib']
-    self.compileSessionVars('restackSgmtOutputWC.sas',incItems=incItems)
+    self.compileScript('restackSgmtOutputWC.sas',incItems=incItems)
+    incItems = ['ciwork','macroLib','progLib','userEmail']
+    self.compileScript('restackTxnOutputWC.sas',incItems=incItems)
     self.putCredentials()
-    return pmeta
+    return self.pmeta
 
   # -------------------------------------------------------------- #
   # getProgramMeta
   # ---------------------------------------------------------------#
   def getProgramMeta(self):
-    dbKey = 'PMETA|' + self.state.jobId
+
+    dbKey = 'TSXREF|' + self.jobId
+    tsXref = datetime.datetime.now().strftime('%y%m%d%H%M%S')
+    self._leveldb.Put(dbKey, tsXref)
+
+    dbKey = 'PMETA|' + self.jobId
     try:
       pmetadoc = self._leveldb.Get(dbKey)
     except KeyError:
       raise Exception('EEOWW! pmeta json document not found : ' + dbKey)
 
-    _pmeta = json.loads(pmetadoc)
-    pmeta = _pmeta['WcEmltnDirector']
+    pmetaAll = json.loads(pmetadoc)
+    ciwork = pmetaAll['Global']['ciwork']
+    session = '/WC' + tsXref
+    ciwork += session
+    self.sysCmd(['mkdir','-p',ciwork])
+    proglib = ciwork + '/saslib'
+    logdir = ciwork + '/saslib/log'
+    self.sysCmd(['mkdir',proglib])
+    self.sysCmd(['mkdir',logdir])
+    pmetaAll['Global']['ciwork'] = ciwork
+    pmetaAll['Global']['progLib'] = proglib
+    # write the pmeta session dict back for delegates to use
+    self._leveldb.Put(dbKey, json.dumps(pmetaAll))
+    
+    pmeta = pmetaAll['WcEmltnDirector']
     _globals = pmeta['globals'] # append global vars in this list
     del(pmeta['globals'])
     if _globals[0] == '*':
-      pmeta.update(_pmeta['Global'])
+      pmeta.update(pmetaAll['Global'])
     else:
       for item in _globals:
-        pmeta[item] = _pmeta['Global'][item]
+        pmeta[item] = pmetaAll['Global'][item]
     return pmeta
 
   # -------------------------------------------------------------- #
