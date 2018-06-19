@@ -98,18 +98,20 @@ class AppProvider(object):
       _jobId = str(uuid.uuid4())
       self._job[_jobId] = delegate
       self.addJob(_jobId, params)
-      return _jobId 
-      
+      return _jobId     
     # must be an AppDirector derivative, leveldb and jobId params are fixed by protocol
-    director = getattr(module, className)(self.db, jobId)
-    # must be an AppListener derivative, leveldb param is fixed by protocol
-    module, className = self.registry.getClassName(params.listener)    
-    listener = getattr(module, className)(self.db)
-    listener.state = director.state
-    listener.addJob(jobId)
-    director.listener = listener
+    if params.kwargs:
+      director = getattr(module, className)(self.db, jobId, **params.kwargs)
+    else:
+      director = getattr(module, className)(self.db, jobId)
+    if hasattr(params, 'listener'):
+      # must be an AppListener derivative, leveldb param is fixed by protocol
+      module, className = self.registry.getClassName(params.listener)    
+      listener = getattr(module, className)(self.db, jobId)
+      listener.state = director.state
+      director.listener = listener
+      self.scheduler.add_listener(listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
     self._job[jobId] = director
-    self.scheduler.add_listener(listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
     self.addJob(params,jobId)
     return jobId
 
@@ -139,8 +141,9 @@ class AppProvider(object):
             if not jobId:
               jobId = params.id
             return self.addNewJob(params,jobId)
-        # a live director program is promoted, ie, state machine is promoted
-        return self.addJob(params.id, params)
+        else:
+          # a live director program is promoted, ie, state machine is promoted
+          return self.addJob(params, params.id)
       # a director program is submitted for scheduling
       return self.addNewJob(params,jobId)
 
@@ -180,7 +183,7 @@ class AppProvider(object):
       if delegate.state.failed:
         logMsg = 'director[%s] has failed, removing it now ...'
       logger.info(logMsg, jobId)
-      if delegate.appType = 'director'
+      if delegate.appType == 'director':
         self.removeMeta(jobId)
       if hasattr(delegate, 'listener'):
         self.scheduler.remove_listener(delegate.listener)
@@ -243,8 +246,11 @@ class Params(object):
       self.args = []
     if not hasattr(params,'kwargs'):
       self.kwargs = None
+    if not hasattr(params,'caller'):
+      self.caller = None
+    if not hasattr(params,'callee'):
+      self.callee = None
     try:
       self.__dict__.update(params)
     except:
-    raise Exception('json decode error, bad params')     
-
+      raise Exception('params is not a dict')     
