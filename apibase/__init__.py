@@ -12,10 +12,8 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License. 
 #
-from appProvider import AppProvider
+from appProvider import AppProvider as appPrvdr
 import logging
-
-AppProvider._init('/home/workspace/leveldb/devdb1')
 
 def dispatch(jobId, *argv, **kwargs):
   logger = logging.getLogger('apscheduler')
