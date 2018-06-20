@@ -48,19 +48,20 @@ class AppProvider(object):
         raise Exception("config['registry'] does not exist : " + config['registry'])
     except KeyError:
       raise Exception('AppProvider config is not valid')
-    AppProvider._singleton = AppProvider()
+    appPrvdr = AppProvider()
     _leveldb = leveldb.LevelDB(dbPath)
-    AppProvider._singleton.db = _leveldb
+    appPrvdr.db = _leveldb
     jobstore = LeveldbJobStore(_leveldb)
     jobstores = { 'default': jobstore } 
     scheduler = BackgroundScheduler(jobstores=jobstores)
     scheduler.start()
-    AppProvider._singleton.scheduler = scheduler
+    appPrvdr.scheduler = scheduler
     registry = ServiceRegister()
     #registry.load('/apps/home/u352425/wcauto1/temp/apiservices.json')
     registry.load(config.registryPath)
-    AppProvider._singleton.registry = registry
-    AppProvider._singleton._job = {}
+    appPrvdr._singleton.registry = registry
+    appPrvdr._singleton._job = {}
+    AppProvider._singleton = appPrvdr
     return AppProvider._singleton
 
   # -------------------------------------------------------------- #
