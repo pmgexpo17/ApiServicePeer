@@ -29,28 +29,39 @@ logger = logging.getLogger('apscheduler')
 # ---------------------------------------------------------------#
 class AppProvider(object):
   _singleton = None
-  _lock = RLock()
+  _lock = RLock()  
   
   @staticmethod
-  def init(dbPath):
+  def connect(config):
     with AppProvider._lock:
       if AppProvider._singleton is not None:
-        return
-      logger.info('AppProvider is starting ...')
-      if not os.path.isdir(dbPath):
-        raise Exception("app.config['DB_PATH'] is not a directory : " + dbPath)
-      AppProvider._singleton = AppProvider()
-      _leveldb = leveldb.LevelDB(dbPath)
-      AppProvider._singleton.db = _leveldb
-      jobstore = LeveldbJobStore(_leveldb)
-      jobstores = { 'default': jobstore } 
-      scheduler = BackgroundScheduler(jobstores=jobstores)
-      scheduler.start()
-      AppProvider._singleton.scheduler = scheduler
-      registry = ServiceRegister()
-      registry.load('/apps/home/u352425/wcauto1/temp/apiservices.json')
-      AppProvider._singleton.registry = registry
-      AppProvider._singleton._job = {}
+        return AppProvider._singleton
+      return AppProvider.start(config)
+  
+  @staticmethod
+  def start(config):
+    logger.info('AppProvider is starting ...')
+    try:
+      if not os.path.isdir(config['dbPath']):      
+        raise Exception("config['dbPath'] is not a directory : " + config['dbPath'])
+      if not os.path.isdir(config['registryPath']):
+        raise Exception("config['serviceRegister'] does not exist : " + config['registryPath'])
+    except KeyError:
+      raise Exception('AppProvider config is not valid')
+    AppProvider._singleton = AppProvider()
+    _leveldb = leveldb.LevelDB(dbPath)
+    AppProvider._singleton.db = _leveldb
+    jobstore = LeveldbJobStore(_leveldb)
+    jobstores = { 'default': jobstore } 
+    scheduler = BackgroundScheduler(jobstores=jobstores)
+    scheduler.start()
+    AppProvider._singleton.scheduler = scheduler
+    registry = ServiceRegister()
+    #registry.load('/apps/home/u352425/wcauto1/temp/apiservices.json')
+    registry.load(config.registryPath)
+    AppProvider._singleton.registry = registry
+    AppProvider._singleton._job = {}
+    return AppProvider._singleton
 
   # -------------------------------------------------------------- #
   # addJobGroup
