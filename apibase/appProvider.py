@@ -23,39 +23,34 @@ import os
 import uuid
 
 logger = logging.getLogger('apscheduler')
+
 # -------------------------------------------------------------- #
 # AppProvider
 # ---------------------------------------------------------------#
 class AppProvider(object):
-
-  def __init__(self):
-    self.db = None
-    self.scheduler = None
-    self.service = None
-    self._job = None
-    self.lock = RLock()
-
-  # -------------------------------------------------------------- #
-  # init
-  # ---------------------------------------------------------------#
-  def init(self, dbPath):
-
-    if self.db:
-      logger.info('%s, init: aready done', __name__)
-      return
-    logger.info('%s, init: not done', __name__)
-    if not os.path.isdir(dbPath):
-      raise Exception("app.config['DB_PATH'] is not a directory : " + dbPath)
-    _leveldb = leveldb.LevelDB(dbPath)
-    self.db = _leveldb
-    jobstore = LeveldbJobStore(_leveldb)
-    jobstores = { 'default': jobstore } 
-    scheduler = BackgroundScheduler(jobstores=jobstores)
-    scheduler.start()
-    self.scheduler = scheduler
-    self.registry = ServiceRegister()
-    self.registry.load('/apps/home/u352425/wcauto1/temp/apiservices.json')
-    self._job = {}
+  _singleton = None
+  _lock = RLock()
+  
+  @staticmethod
+  def init(dbPath):
+    with AppProvider._lock:
+      if AppProvider._singleton is not None:
+        return
+      logger.info('AppProvider is starting ...')
+      if not os.path.isdir(dbPath):
+        raise Exception("app.config['DB_PATH'] is not a directory : " + dbPath)
+      AppProvider._singleton = AppProvider()
+      _leveldb = leveldb.LevelDB(dbPath)
+      AppProvider._singleton.db = _leveldb
+      jobstore = LeveldbJobStore(_leveldb)
+      jobstores = { 'default': jobstore } 
+      scheduler = BackgroundScheduler(jobstores=jobstores)
+      scheduler.start()
+      AppProvider._singleton.scheduler = scheduler
+      registry = ServiceRegister()
+      registry.load('/apps/home/u352425/wcauto1/temp/apiservices.json')
+      AppProvider._singleton.registry = registry
+      AppProvider._singleton._job = {}
 
   # -------------------------------------------------------------- #
   # addJobGroup
