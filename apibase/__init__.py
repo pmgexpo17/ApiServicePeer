@@ -12,11 +12,13 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License. 
 #
-from appProvider import AppProvider as appPrvdr
+from appProvider import AppProvider as AppPrvdr
 import logging
 
 def dispatch(jobId, *argv, **kwargs):
   logger = logging.getLogger('apscheduler')
+  
+  appPrvdr = AppPrvdr._singleton
   try:
     delegate = appPrvdr._job[jobId]
   except KeyError:
