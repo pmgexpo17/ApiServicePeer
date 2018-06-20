@@ -15,8 +15,7 @@
 from appProvider import AppProvider
 import logging
 
-appPrvdr = AppProvider()
-appPrvdr.init('/home/workspace/leveldb/devdb1')
+AppProvider._init('/home/workspace/leveldb/devdb1')
 
 def dispatch(jobId, *argv, **kwargs):
   logger = logging.getLogger('apscheduler')
