@@ -44,8 +44,8 @@ class AppProvider(object):
     try:
       if not os.path.isdir(config['dbPath']):      
         raise Exception("config['dbPath'] is not a directory : " + config['dbPath'])
-      if not os.path.isdir(config['registryPath']):
-        raise Exception("config['serviceRegister'] does not exist : " + config['registryPath'])
+      if not os.path.isdir(config['registry']):
+        raise Exception("config['registry'] does not exist : " + config['registry'])
     except KeyError:
       raise Exception('AppProvider config is not valid')
     AppProvider._singleton = AppProvider()
@@ -127,7 +127,7 @@ class AppProvider(object):
   def promote(self, _params, jobId=None, jobCount=None):
 
     params = Params(_params)
-    with self.lock:
+    with AppProvider.lock:
       try:
         params.id
       except AttributeError:
@@ -158,25 +158,25 @@ class AppProvider(object):
   # ---------------------------------------------------------------#
   def getStreamGen(self, params):
 
-    with self.lock:
-      try:
-        delegate = self._job[params.id]
-      except KeyError:
-        logger.error('jobId not found in job register : ' + params.id)
-      except AttributeError:
-        raise Exception("required param 'id' not found")  
-      try:
-        streamGen = delgate.renderStream(params.dataKey)
-      except Exception as ex:
-        logger.error('stream generation failed : ' + params.id)
-        raise
-      self.evalComplete(delegate, params.id)
-      return streamGen
+    try:
+      delegate = self._job[params.id]
+    except KeyError:
+      logger.error('jobId not found in job register : ' + params.id)
+    except AttributeError:
+      raise Exception("required param 'id' not found")  
+    try:
+      streamGen = delgate.renderStream(params.dataKey)
+    except Exception as ex:
+      logger.error('stream generation failed : ' + params.id)
+      raise
+    self.evalComplete(delegate, params.id)
+    return streamGen
 
   # -------------------------------------------------------------- #
   # evalComplete
   # ---------------------------------------------------------------#
   def evalComplete(self, delegate, jobId):
+    
     try:
       delegate.state
     except AttributeError:
