@@ -12,24 +12,24 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License. 
 #
-from flask import Flask, g
-from flask_restful import reqparse, abort, Resource, Api
-from apibase import appPrvdr
-import json
 import logging
 import sys
+logger = logging.getLogger('apscheduler')
+logFormatter = logging.Formatter('%(levelname)s:%(asctime)s %(message)s', datefmt='%d-%m-%Y %I:%M:%S %p')
+fileHandler = logging.FileHandler('./apiPeer.log')
+fileHandler.setFormatter(logFormatter)
+logger.addHandler(fileHandler)
+
+consoleHandler = logging.StreamHandler(sys.stdout)
+consoleHandler.setFormatter(logFormatter)
+logger.addHandler(consoleHandler)
+logger.setLevel(logging.INFO)
+
+from apibase import appPrvdr
+from flask import Flask, g
+from flask_restful import reqparse, abort, Resource, Api
+import json
 import uuid
-
-# create_app style which supports the Flask factory pattern
-def create_app(app_config=None):
-
-  flask = Flask(__name__)
-  if app_config:
-    flask.config.from_pyfile(app_config)
-  return flask
-
-flask = create_app()
-flaskApi = Api(flask)
 
 def setPrvdr():
   if 'prvdr' not in g:
@@ -95,16 +95,15 @@ class DataJob(Resource):
 
   def get(self):
     setPrvdr()
-    params = parser.parse_args()
+    args = parser.parse_args()
     if args['id'] and args['dataKey']:
-      params = json.loads(args)
-      logger.info('job args : ' + str(params))
+      logger.info('job args : ' + str(args))
       try:      
-        streamGen = g.prvdr.getStreamGen(params)
+        streamGen = g.prvdr.getStreamGen(args)
       except Exception as ex:
         return {'status':500,'error':str(ex)}, 500
       else:
-        return streamGen, 201
+        return streamGen
     else:
       return {'status':500,'error':"either 'id' and 'dataKey' form parameter not found"}, 500
 
@@ -112,21 +111,29 @@ class DataJob(Resource):
 ## Actually setup the Api resource routing here
 ##
 
+# create_app style which supports the Flask factory pattern
+def create_app(app_config=None):
+
+  flask = Flask(__name__)
+  if app_config:
+    flask.config.from_pyfile(app_config)
+  return flask
+
+flask = create_app()
+flaskApi = Api(flask)
+
 flaskApi.add_resource(PutJob, '/api/v1/job')
 flaskApi.add_resource(PostJob, '/api/v1/job/<jobCount>')
 flaskApi.add_resource(DataJob, '/api/v1/data')
 
+from cheroot.wsgi import PathInfoDispatcher
+from cheroot.wsgi import Server as wsgiserver
+
+delegate = PathInfoDispatcher({'/': flask})
+server = wsgiserver(('0.0.0.0', 5000), delegate)
+
 if __name__ == '__main__':
-
-  logger = logging.getLogger('apscheduler')
-  logFormatter = logging.Formatter('%(levelname)s:%(asctime)s %(message)s', datefmt='%d-%m-%Y %I:%M:%S %p')
-  fileHandler = logging.FileHandler('./apiServicePeer.log')
-  fileHandler.setFormatter(logFormatter)
-  logger.addHandler(fileHandler)
-
-  consoleHandler = logging.StreamHandler(sys.stdout)
-  consoleHandler.setFormatter(logFormatter)
-  logger.addHandler(consoleHandler)
-  logger.setLevel(logging.INFO)
-
-  flask.run(debug=True,use_reloader=False) 
+   try:
+      server.start()
+   except KeyboardInterrupt:
+      server.stop()
