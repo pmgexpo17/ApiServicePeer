@@ -10,25 +10,31 @@ import requests, re
 # ---------------------------------------------------------------#
 class WcEmltnInputPrvdr(AppDirector):
 
-  def __init__(self, leveldb, jobId, caller=None, callee=None):
+  def __init__(self, leveldb, jobId, caller):
     super(WcEmltnInputPrvdr,self).__init__(leveldb, jobId)
     self.caller = caller
-    self.callee = callee
     self.appType = 'delegate'
     self.state.hasNext = True
-    self.resolve = WcResolveUnit(leveldb, self.callee)
+    self.resolve = WcResolveUnit(leveldb)
     self.resolve.state = self.state
+
+  # -------------------------------------------------------------- #
+  # runApp
+  # - override to get the callee jobId sent from NormalizeXml partner
+  # ---------------------------------------------------------------#
+  def runApp(self, signal=None, callee=None):
+    logger.info('[START] WcEmltnInputPrvdr.runApp, callee : ' + str(callee))
+    self.resolve.callee = callee    
+    super(WcEmltnInputPrvdr, self).runApp(signal)
 
   # -------------------------------------------------------------- #
   # _start
   # ---------------------------------------------------------------#                                          
   def _start(self):
-    logger.info('caller : ' + str(self.caller))    
-    logger.info('callee : ' + str(self.callee))
+    logger.info('[START] WcEmltnInputPrvdr._start, caller : ' + str(self.caller))
     scriptPrvdr = WcScriptPrvdr(self._leveldb,self.jobId,self.caller)
     tsXref, pmeta = scriptPrvdr()
-    self.resolve.pmeta = pmeta
-    self.resolve._start(tsXref)
+    self.resolve._start(tsXref, pmeta)
 
   # -------------------------------------------------------------- #
   # advance
@@ -71,8 +77,8 @@ class WcEmltnInputPrvdr(AppDirector):
   def putApiRequest(self, signal):
     if self.state.transition == 'NORMALISE_XML':
       classRef = 'normalizeXml:NormalizeXml'
-      pdata = (classRef,json.dumps({'scaller':self.caller,'caller':self.jobId}))
-      params = '{"type":"director","id":null,"responder":"self","service":"%s","args":[],"kwargs":%s}' % pdata
+      pdata = (classRef,json.dumps([self.caller,self.jobId]))
+      params = '{"type":"director","id":null,"responder":"self","service":"%s","args":[],"caller":%s}' % pdata
       data = [('job',params)]
       apiUrl = 'http://localhost:5000/api/v1/job'
       response = requests.put(apiUrl,data=data)
@@ -91,21 +97,22 @@ class WcEmltnInputPrvdr(AppDirector):
 # ---------------------------------------------------------------#
 class WcResolveUnit(AppResolveUnit):
   
-  def __init__(self, leveldb, callee):
+  def __init__(self, leveldb):
     self._leveldb = leveldb
-    self.callee = callee
+    self.callee = None
+    self.pmeta = None
     self.__dict__['NORMALISE_XML'] = self.NORMALISE_XML
     self.__dict__['IMPORT_TO_SAS'] = self.IMPORT_TO_SAS
     self.__dict__['GET_PMOV_DATA'] = self.GET_PMOV_DATA
     self.__dict__['TRANSFORM_SAS'] = self.TRANSFORM_SAS
-    self.pmeta = None
-
+    
   # -------------------------------------------------------------- #
   # _start
   # ---------------------------------------------------------------#
-  def _start(self, tsXref):
+  def _start(self, tsXref, pmeta):
     logger.info('[START] WcResolveUnit._start')
     self.tsXref = tsXref
+    self.pmeta = pmeta
     self.state.current = 'NORMALISE_XML'
     trnswork = self.pmeta['ciwork'] + '/ssnwork/trnswrk'
     cnvtwork = self.pmeta['ciwork'] + '/ssnwork/cnvtwrk'
@@ -125,7 +132,7 @@ class WcResolveUnit(AppResolveUnit):
   # makeSasFormat
   # ---------------------------------------------------------------#
   def makeSasFormat(self, xmlSchema):
-    
+    logger.info('[START] WcResolveUnit.makeSasFormat')
     with open(xmlSchema,'r') as fhr:
       schemaDoc = json.load(fhr)
     ukeyOrder = schemaDoc['uKeyOrder']
@@ -142,10 +149,8 @@ class WcResolveUnit(AppResolveUnit):
       for nodeKey in columnOrder[tableName]:
         for defnItem in columnDefn[nodeKey]:
           del(defnItem[1])
-          _sasDefn += self.getSasFormat(defnItem)
+          _sasDefn += [defnItem] #self.getSasFormat(defnItem)
       sasDefn[tableName] = _sasDefn
-      if tableName == 'Address':
-        logger.info('address sas defn : ' + str(_sasDefn))
     self.sasDefn = sasDefn
 
   # -------------------------------------------------------------- #
@@ -164,7 +169,7 @@ class WcResolveUnit(AppResolveUnit):
     for index in ukeyDefn:
       defnItem = list(columnDefn[ukeyRef][index])
       del(defnItem[1])
-      sasDefn += self.getSasFormat(defnItem)
+      sasDefn += [defnItem]
     dbKey = '%s|%s|SASFMT' % (self.tsXref, tableName)
     logger.info('sas format : ' + str(sasDefn))
     self._leveldb.Put(dbKey,json.dumps(sasDefn))
@@ -210,22 +215,21 @@ class WcResolveUnit(AppResolveUnit):
 	# IMPORT_TO_SAS
 	# ---------------------------------------------------------------#
   def IMPORT_TO_SAS(self):
-    trnswork = self.pmeta['ciwork'] + '/ssnwork/trnswork'
-    params = {'trnswork':trnswork,'jobId':self.callee}
+    trnswrk = self.pmeta['ciwork'] + '/ssnwork/trnswrk'
+    params = {'trnswrk':trnswrk,'jobId':self.callee}
     env = Environment(loader=PackageLoader('apiservice', 'xmlToSas'),trim_blocks=True)
     template = env.get_template('streamToSas.sas')    
     for tableName in sorted(self.sasDefn):
-      logger.info('tableName : ' + tableName)
+      logger.info('IMPORT_TO SAS : ' + tableName)
       params['tableName'] = tableName      
       sasDefn = self.sasDefn[tableName]
-      logger.info('sas format defn : ' + str(sasDefn))
+      #logger.info('sas format defn : ' + str(sasDefn))
       sasPrgm = '%s/%s.sas' % (self.pmeta['progLib'],tableName)
       template.stream(params=params,sasDefn=sasDefn).dump(sasPrgm)
       logfile = '%s/log/%s.log' % (self.pmeta['progLib'],tableName)
       logger.info('run %s in subprocess ...' % sasPrgm)
       sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
       self.runProcess(sysArgs)
-      break
     self.state.complete = True
     self.state.hasNext = False
     return self.state
