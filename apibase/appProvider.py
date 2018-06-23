@@ -23,13 +23,12 @@ import os
 import uuid
 
 logger = logging.getLogger('apscheduler')
-
 # -------------------------------------------------------------- #
 # AppProvider
 # ---------------------------------------------------------------#
 class AppProvider(object):
   _singleton = None
-  _lock = RLock()  
+  _lock = RLock()
   
   @staticmethod
   def connect(config):
@@ -40,16 +39,17 @@ class AppProvider(object):
   
   @staticmethod
   def start(config):
+    print('XXXXXXXXXXXX AppProvider is starting XXXXXXXXXXXXXX')
     logger.info('AppProvider is starting ...')
     try:
       if not os.path.isdir(config['dbPath']):      
         raise Exception("config['dbPath'] is not a directory : " + config['dbPath'])
-      if not os.path.isdir(config['registry']):
+      if not os.path.exists(config['registry']):
         raise Exception("config['registry'] does not exist : " + config['registry'])
     except KeyError:
       raise Exception('AppProvider config is not valid')
     appPrvdr = AppProvider()
-    _leveldb = leveldb.LevelDB(dbPath)
+    _leveldb = leveldb.LevelDB(config['dbPath'])
     appPrvdr.db = _leveldb
     jobstore = LeveldbJobStore(_leveldb)
     jobstores = { 'default': jobstore } 
@@ -58,12 +58,15 @@ class AppProvider(object):
     appPrvdr.scheduler = scheduler
     registry = ServiceRegister()
     #registry.load('/apps/home/u352425/wcauto1/temp/apiservices.json')
-    registry.load(config.registryPath)
-    appPrvdr._singleton.registry = registry
-    appPrvdr._singleton._job = {}
+    registry.load(config['registry'])
+    appPrvdr.registry = registry
+    appPrvdr._job = {}
     AppProvider._singleton = appPrvdr
     return AppProvider._singleton
 
+  def __init__(self):
+    self.lock = RLock()
+    
   # -------------------------------------------------------------- #
   # addJobGroup
   # ---------------------------------------------------------------#
@@ -81,7 +84,6 @@ class AppProvider(object):
       self._job[jobId] = getattr(module, className)(self.db)
       params.args[-1] = jobNum + 1
       self.addJob(params,jobId)
-      
     return jobs
 
   # -------------------------------------------------------------- #
@@ -107,8 +109,8 @@ class AppProvider(object):
       self.addJob(_jobId, params)
       return _jobId     
     # must be an AppDirector derivative, leveldb and jobId params are fixed by protocol
-    if params.kwargs:
-      director = getattr(module, className)(self.db, jobId, **params.kwargs)
+    if params.caller:
+      director = getattr(module, className)(self.db, jobId, params.caller)
     else:
       director = getattr(module, className)(self.db, jobId)
     if hasattr(params, 'listener'):
@@ -128,7 +130,7 @@ class AppProvider(object):
   def promote(self, _params, jobId=None, jobCount=None):
 
     params = Params(_params)
-    with AppProvider.lock:
+    with self.lock:
       try:
         params.id
       except AttributeError:
@@ -157,27 +159,29 @@ class AppProvider(object):
   # -------------------------------------------------------------- #
   # getStreamGen
   # ---------------------------------------------------------------#
-  def getStreamGen(self, params):
+  def getStreamGen(self, _params):
 
-    try:
-      delegate = self._job[params.id]
-    except KeyError:
-      logger.error('jobId not found in job register : ' + params.id)
-    except AttributeError:
-      raise Exception("required param 'id' not found")  
-    try:
-      streamGen = delgate.renderStream(params.dataKey)
-    except Exception as ex:
-      logger.error('stream generation failed : ' + params.id)
-      raise
-    self.evalComplete(delegate, params.id)
-    return streamGen
+    with self.lock:
+      params = Params(_params)
+      try:
+        delegate = self._job[params.id]
+      except KeyError:
+        logger.error('jobId not found in job register : ' + params.id)
+      except AttributeError:
+        raise Exception("required param 'id' not found")  
+      try:
+        logger.info('####### streamPrvdr : ' + delegate.__class__.__name__)
+        streamGen = delegate.renderStream(params.dataKey)
+      except Exception as ex:
+        logger.error('stream generation failed : ' + str(ex))
+        raise
+      self.evalComplete(delegate, params.id)
+      return streamGen
 
   # -------------------------------------------------------------- #
   # evalComplete
   # ---------------------------------------------------------------#
   def evalComplete(self, delegate, jobId):
-    
     try:
       delegate.state
     except AttributeError:
@@ -190,6 +194,7 @@ class AppProvider(object):
       if delegate.state.failed:
         logMsg = 'director[%s] has failed, removing it now ...'
       logger.info(logMsg, jobId)
+      delegate.onComplete()
       if delegate.appType == 'director':
         self.removeMeta(jobId)
       if hasattr(delegate, 'listener'):
@@ -255,9 +260,8 @@ class Params(object):
       self.kwargs = None
     if not hasattr(params,'caller'):
       self.caller = None
-    if not hasattr(params,'callee'):
-      self.callee = None
     try:
       self.__dict__.update(params)
     except:
       raise Exception('params is not a dict')     
+
