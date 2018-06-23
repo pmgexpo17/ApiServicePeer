@@ -12,13 +12,16 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License. 
 #
-from appProvider import AppProvider as AppPrvdr
+from appProvider import AppProvider
 import logging
+
+config = {'dbPath':'/apps/webapi/wcemltn/leveldb',
+          'registry':'/apps/home/u352425/wcauto1/temp/apiservices.json'}
+appPrvdr = AppProvider.connect(config)
 
 def dispatch(jobId, *argv, **kwargs):
   logger = logging.getLogger('apscheduler')
   
-  appPrvdr = AppPrvdr._singleton
   try:
     delegate = appPrvdr._job[jobId]
   except KeyError:
@@ -26,6 +29,7 @@ def dispatch(jobId, *argv, **kwargs):
     return
   
   delegate(*argv, **kwargs)
-  with appPrvdr.lock
+  with appPrvdr._lock:
     appPrvdr.evalComplete(delegate, jobId)
+  
   
