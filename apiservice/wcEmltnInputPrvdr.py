@@ -149,7 +149,7 @@ class WcResolveUnit(AppResolveUnit):
       for nodeKey in columnOrder[tableName]:
         for defnItem in columnDefn[nodeKey]:
           del(defnItem[1])
-          _sasDefn += [defnItem] #self.getSasFormat(defnItem)
+          _sasDefn += self.getSasFormat(defnItem)
       sasDefn[tableName] = _sasDefn
     self.sasDefn = sasDefn
 
@@ -169,7 +169,7 @@ class WcResolveUnit(AppResolveUnit):
     for index in ukeyDefn:
       defnItem = list(columnDefn[ukeyRef][index])
       del(defnItem[1])
-      sasDefn += [defnItem]
+      sasDefn += self.getSasFormat(defnItem)
     dbKey = '%s|%s|SASFMT' % (self.tsXref, tableName)
     logger.info('sas format : ' + str(sasDefn))
     self._leveldb.Put(dbKey,json.dumps(sasDefn))
