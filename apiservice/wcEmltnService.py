@@ -1,4 +1,4 @@
-from apiservice import SubProcHandler, AppDirector, AppState, AppResolveUnit, AppListener, SasScriptPrvdr, logger
+from apiservice import SysCmdUnit, AppDirector, AppState, AppResolveUnit, AppListener, SasScriptPrvdr, logger
 import datetime
 from email.mime.text import MIMEText
 from threading import RLock
@@ -30,10 +30,8 @@ class WcEmltnDirector(AppDirector):
     logger.debug('[START] loadProgramMeta')
     scriptPrvdr = WcScriptPrvdr(self._leveldb, self.jobId)
     pmeta = scriptPrvdr()
-    self.resolve.pmeta = pmeta
-    self.resolve._start()
-    self.mailer.pmeta = pmeta
-    self.mailer._start()
+    self.resolve._start(pmeta)
+    self.mailer._start(pmeta)
 
   # -------------------------------------------------------------- #
   # advance
@@ -89,8 +87,8 @@ class WcEmltnDirector(AppDirector):
     
     if self.state.transition == 'XML_TO_SAS':
       classRef = 'wcEmltnInputPrvdr:WcEmltnInputPrvdr'
-      pdata = (classRef,json.dumps({'caller':self.jobId}))
-      params = '{"type":"director","id":null,"responder":"self","service":"%s","args":[],"kwargs":%s}' % pdata
+      pdata = (classRef,self.jobId)
+      params = '{"type":"director","id":null,"responder":"self","service":"%s","args":[],"caller":"%s"}' % pdata
       data = [('job',params)]
       apiUrl = 'http://localhost:5000/api/v1/job'
       response = requests.put(apiUrl,data=data)
@@ -109,6 +107,7 @@ class WcEmltnDirector(AppDirector):
 # WcResolveUnit
 # ---------------------------------------------------------------#
 class WcResolveUnit(AppResolveUnit):
+  
   def __init__(self):
     self.__dict__['XML_TO_SAS'] = self.XML_TO_SAS
     self.__dict__['TXN_REPEAT'] = self.TXN_REPEAT
@@ -134,10 +133,10 @@ class WcResolveUnit(AppResolveUnit):
   # -------------------------------------------------------------- #
   # _start
   # ---------------------------------------------------------------#                                          
-  def _start(self):
-    
-    logger.info('[START] landriveMount')
+  def _start(self, pmeta):
+    logger.info('[START] landriveMount')    
     self.state.current = 'XML_TO_SAS'
+    self.pmeta = pmeta
     self.mountPath = 'webapi/wcemltn/session'
     logger.info('landrive mount path : ' + self.mountPath)
     unMounted = self.sysCmd(['grep','-w',self.mountPath,'/etc/mtab'])
@@ -287,7 +286,7 @@ class WcResolveUnit(AppResolveUnit):
 # -------------------------------------------------------------- #
 # WcEmltnBySgmt
 # ---------------------------------------------------------------#
-class WcEmltnBySgmt(SubProcHandler):
+class WcEmltnBySgmt(SysCmdUnit):
 
   def __init__(self, leveldb):
     self._leveldb = leveldb
@@ -356,6 +355,7 @@ class WcEmltnListener(AppListener):
 # WcEmailUnit
 # ---------------------------------------------------------------#
 class WcEmailUnit(AppResolveUnit):
+  
   def __init__(self):
     self.__dict__['XML_TO_SAS'] = self.XML_TO_SAS
     self.__dict__['TXN_REPEAT'] = self.TXN_REPEAT
@@ -368,7 +368,8 @@ class WcEmailUnit(AppResolveUnit):
   # -------------------------------------------------------------- #
   # _start
   # ---------------------------------------------------------------#  
-  def _start(self):
+  def _start(self, pmeta):
+    self.pmeta = pmeta
     self._to = self.pmeta['userEmail']
     
   # -------------------------------------------------------------- #
