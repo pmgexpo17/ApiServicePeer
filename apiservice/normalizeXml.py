@@ -311,12 +311,9 @@ class XmlTablizer(object):
       self.COLS[nodeKey]
     except KeyError:
       return
-    #record = []
-    record = {}
+    record = []
     for colItem in self.COLS[nodeKey]:
-      colName, colValue = self.getAttr(colItem, attrib, nodeKey)
-      record[colName] = colValue
-      #record.append(colValue)    
+      record += self.getAttr(colItem[0], colItem[1], attrib, nodeKey)
     self._record[nodeKey] = record
     if self.ukeyRef == nodeKey:
       self.putUniqKey(nodeKey)
@@ -330,22 +327,19 @@ class XmlTablizer(object):
     nodeIndex = '%s%d' % (branchId,self.count)
     dbKey = '%s|%s|ROW%s' % (self.tsXref, self.tableName, nodeIndex)
     for nodeKey in self.COLS['order']:
-      columns = [colItem[0] for colItem in self.COLS[nodeKey]]
-      for colName in columns:
-        record.append(self._record[nodeKey][colName])
+      record += self._record[nodeKey]
     self._leveldb.Put(dbKey, json.dumps(record))
     logger.debug('%s : %s' % (dbKey, str(record)))
 
   # -------------------------------------------------------------- #
   # getAttr
   # ---------------------------------------------------------------#
-  def getAttr(self, colItem, attrib, nodeKey):
-    colName, nullVal = colItem[:2]
+  def getAttr(self, colName, nullVal, attrib, nodeKey):
     try:
-      return (colName, attrib[colName])
+      return [attrib[colName]]
     except KeyError:
       logger.debug('%s xml node attribute not found : %s' % (nodeKey, colName))
-      return (colName, nullVal)
+      return [nullVal]
     
   # -------------------------------------------------------------- #
   # putUniqKey
@@ -354,10 +348,8 @@ class XmlTablizer(object):
 
     record = self.getForeignKey()      
     dbKey = '%s|%s|UKEY' % (self.tsXref, self.tableName)
-    columns = [colItem[0] for colItem in self.COLS[nodeKey]]
     for index in self.ukeyDefn:
-      colName = columns[index]
-      record.append(self._record[nodeKey][colName])
+      record.append(self._record[nodeKey][index])
     self._leveldb.Put(dbKey,json.dumps(record))
     logger.debug('%s : %s' % (dbKey, str(record)))
 
