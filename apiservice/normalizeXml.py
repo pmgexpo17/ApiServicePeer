@@ -13,25 +13,30 @@
 #  limitations under the License. 
 #
 from apiservice import AppDirector, AppResolveUnit, SasScriptPrvdr, StreamPrvdr, logger
+from flask import Response
 from lxml.etree import XMLParser, ParseError
+from threading import RLock
 import os, sys, time
 import logging
 import json
 import requests, re
+from StringIO import StringIO
 
 # -------------------------------------------------------------- #
 # NormalizeXml
 # ---------------------------------------------------------------#
 class NormalizeXml(AppDirector, StreamPrvdr):
 
-  def __init__(self, leveldb, jobId, scaller=None, caller=None):
+  def __init__(self, leveldb, jobId, caller):
     super(NormalizeXml, self).__init__(leveldb, jobId)
-    self.scaller = scaller #scaller, the super program
-    self.caller = caller  #caller, the calling program
+    self.scaller = caller[0] #scaller, the super program
+    self.caller = caller[1]  #caller, the calling program
     self.appType = 'delegate'
     self.state.hasNext = True
     self.resolve = ResolveUnit(leveldb)
     self.resolve.state = self.state
+    self.dlm = '<>'
+    self.lock = RLock()
 
   # -------------------------------------------------------------- #
   # _start
@@ -39,8 +44,8 @@ class NormalizeXml(AppDirector, StreamPrvdr):
   def _start(self):
     scriptPrvdr = WcScriptPrvdr(self._leveldb,self.jobId,self.scaller)
     tsXref, pmeta = scriptPrvdr()
-    self.resolve.pmeta = pmeta
-    self.resolve._start(tsXref)
+    self.tsXref = tsXref
+    self.resolve._start(tsXref, pmeta)
 
   # -------------------------------------------------------------- #
   # advance
@@ -79,19 +84,24 @@ class NormalizeXml(AppDirector, StreamPrvdr):
 	# renderStream
 	# ---------------------------------------------------------------#
   def renderStream(self, tableName):
+    logger.info('RENDER_STREAM : ' + tableName)
     startKey = '%s|%s|ROW1' % (self.tsXref, tableName)
-    endKey = '%s|%s|ROW%d' % (self.tsXref, tableName, self.rowcount+1)
+    endKey = '%s|%s|ROW:' % (self.tsXref, tableName)
     itemIter = self._leveldb.RangeIter(startKey, endKey)
     def generate():
       while True:
         try:
           key, item = itemIter.next()
-          row = self.dlm.join(item)
+          try:
+            row = self.dlm.join(json.loads(item))
+          except Exception as ex:
+            logger.error('json loads failed : ' + str(ex))
+            raise
           yield row + '\n'
         except StopIteration:
           break
     self.resolve.toRender.remove(tableName)
-    return Response(generate(), mimetype='text')
+    return Response(generate(), status=201, mimetype='text/html')
 
   # -------------------------------------------------------------- #
   # putApiRequest
@@ -131,6 +141,8 @@ class ResolveUnit(AppResolveUnit):
           parser.feed(xmlRecord)
         except ParseError as ex:
           logger.error(str(ex))
+        except KeyError as ex:
+          logger.error('!! parser key error !!' + str(ex))
     parser.feed('<\Root>\n')
     self.complete()
     parser.close()
@@ -156,9 +168,12 @@ class ResolveUnit(AppResolveUnit):
   # -------------------------------------------------------------- #
   # _start
   # ---------------------------------------------------------------#
-  def _start(self, tsXref):
+  def _start(self, tsXref, pmeta):
+    logger.info('[START] NormalizeXml._start')
     self.state.current = 'NORMALISE_XML'
     self.tsXref = tsXref
+    logger.info('tsXref : ' + tsXref)
+    self.pmeta = pmeta
     xmlSchema = '%s/assets/%s' %  (self.pmeta['ciwork'],self.pmeta['xmlSchema'])
     self.importXmlSchema(xmlSchema)
     self.checkXmlExists()
@@ -209,7 +224,6 @@ class ResolveUnit(AppResolveUnit):
       logger.error(errmsg)
       raise Exception(errmsg)
     self.inputXmlFile = inputXmlFile
-    logger.info('[END] checkInputFile')
 
   # -------------------------------------------------------------- #
   # next
@@ -297,10 +311,12 @@ class XmlTablizer(object):
       self.COLS[nodeKey]
     except KeyError:
       return
-    record = []
+    #record = []
+    record = {}
     for colItem in self.COLS[nodeKey]:
-      colValue = self.getAttr(colItem[0], colItem[1], attrib, nodeKey)
-      record.append(colValue)    
+      colName, colValue = self.getAttr(colItem, attrib, nodeKey)
+      record[colName] = colValue
+      #record.append(colValue)    
     self._record[nodeKey] = record
     if self.ukeyRef == nodeKey:
       self.putUniqKey(nodeKey)
@@ -314,19 +330,22 @@ class XmlTablizer(object):
     nodeIndex = '%s%d' % (branchId,self.count)
     dbKey = '%s|%s|ROW%s' % (self.tsXref, self.tableName, nodeIndex)
     for nodeKey in self.COLS['order']:
-      record += self._record[nodeKey]
+      columns = [colItem[0] for colItem in self.COLS[nodeKey]]
+      for colName in columns:
+        record.append(self._record[nodeKey][colName])
     self._leveldb.Put(dbKey, json.dumps(record))
     logger.debug('%s : %s' % (dbKey, str(record)))
 
   # -------------------------------------------------------------- #
   # getAttr
   # ---------------------------------------------------------------#
-  def getAttr(self, colName, noValue, attrib, nodeKey):
+  def getAttr(self, colItem, attrib, nodeKey):
+    colName, nullVal = colItem[:2]
     try:
-      return attrib[colName]
+      return (colName, attrib[colName])
     except KeyError:
       logger.debug('%s xml node attribute not found : %s' % (nodeKey, colName))
-      return noValue
+      return (colName, nullVal)
     
   # -------------------------------------------------------------- #
   # putUniqKey
@@ -335,11 +354,11 @@ class XmlTablizer(object):
 
     record = self.getForeignKey()      
     dbKey = '%s|%s|UKEY' % (self.tsXref, self.tableName)
+    columns = [colItem[0] for colItem in self.COLS[nodeKey]]
     for index in self.ukeyDefn:
-      record.append(self._record[nodeKey][index])
+      colName = columns[index]
+      record.append(self._record[nodeKey][colName])
     self._leveldb.Put(dbKey,json.dumps(record))
-    if self.tableName == 'Address':
-      logger.info('address record : ' + str(record))
     logger.debug('%s : %s' % (dbKey, str(record)))
 
   # -------------------------------------------------------------- #
