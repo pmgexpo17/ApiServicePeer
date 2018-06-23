@@ -22,9 +22,9 @@ import re
 logger = logging.getLogger('apscheduler')
 
 # -------------------------------------------------------------- #
-# SubProcHandler
+# SysCmdUnit
 # ---------------------------------------------------------------#
-class SubProcHandler(object):
+class SysCmdUnit(object):
 
   # ------------------------------------------------------------ #
   # sysCmd
@@ -69,7 +69,7 @@ class SubProcHandler(object):
 # -------------------------------------------------------------- #
 # AppDirector
 # ---------------------------------------------------------------#
-class AppDirector(SubProcHandler):
+class AppDirector(SysCmdUnit):
   __metaclass__ = ABCMeta
 
   def __init__(self, leveldb, jobId):
@@ -120,14 +120,12 @@ class AppDirector(SubProcHandler):
           break  
         state = self.advance()
         logger.info('next state : ' + self.state.current)
-      if state.complete:
-        self.onComplete()
     except Exception as ex:
       #self.mailer[state.current]('ERROR')
       self.onError(str(ex))
       self.state.complete = True
       self.state.failed = True
-      logger.error('runApp failed : ' + str(ex))
+      logger.error('director failed : ' + str(ex))
 
   # -------------------------------------------------------------- #
   # advance
@@ -169,14 +167,14 @@ class AppState(object):
     self.inTransition = False
     self.hasNext = False
     self.complete = False
-    self.failed = True
+    self.failed = False
     self.lock = RLock()
     self.status = 'STOPPED'
 
 # -------------------------------------------------------------- #
 # AppResolveUnit
 # ---------------------------------------------------------------#
-class AppResolveUnit(SubProcHandler):
+class AppResolveUnit(SysCmdUnit):
 
   def __getitem__(self, key):
       return self.__dict__[key]
@@ -233,7 +231,7 @@ class StreamPrvdr(object):
 # -------------------------------------------------------------- #
 # SasScriptPrvdr
 # ---------------------------------------------------------------#
-class SasScriptPrvdr(SubProcHandler):
+class SasScriptPrvdr(SysCmdUnit):
   __metaclass__ = ABCMeta
 
   def __init__(self):
