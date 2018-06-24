@@ -226,10 +226,7 @@ class WcResolveUnit(AppResolveUnit):
       #logger.info('sas format defn : ' + str(sasDefn))
       sasPrgm = '%s/%s.sas' % (self.pmeta['progLib'],tableName)
       template.stream(params=params,sasDefn=sasDefn).dump(sasPrgm)
-      logfile = '%s/log/%s.log' % (self.pmeta['progLib'],tableName)
-      logger.info('run %s in subprocess ...' % sasPrgm)
-      sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
-      self.runProcess(sysArgs)
+      self.manageDataStream(sasPrgm,tableName)
     self.state.complete = True
     self.state.hasNext = False
     return self.state
@@ -237,6 +234,19 @@ class WcResolveUnit(AppResolveUnit):
 #    self.state.hasNext = True
 #    return self.state
 
+  def manageDataStream(self, sasPrgm, tableName):
+    
+    dbKey = '%s|%s|ROW' % (self.tsXref, tableName)
+    apiUrl = 'http://localhost:5000/api/v1/data?dbKey=%s'
+    try:
+      streamFh = urllib2.urlopen(apiUrl)
+    except HTTPError as ex
+	raise Exception('data stream http request failed : ' + ex.reason)
+    logfile = '%s/log/%s.log' % (self.pmeta['progLib'],tableName)
+    logger.info('run %s in subprocess ...' % sasPrgm)
+    sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
+    self.runProcess(sysArgs,stdin=streamFh)
+    
 	# -------------------------------------------------------------- #
 	# GET_PMOV_DATA
 	# ---------------------------------------------------------------#
