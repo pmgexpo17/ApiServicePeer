@@ -1,16 +1,24 @@
+# The MIT License
+#
 # Copyright (c) 2018 Peter A McGill
 #
-#  Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
 #
-#  Unless required by applicable law or agreed to in writing, software
-#  distributed under the License is distributed on an "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#  See the License for the specific language governing permissions and
-#  limitations under the License. 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
 #
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
@@ -23,9 +31,18 @@ import os
 import uuid
 
 logger = logging.getLogger('apscheduler')
-# -------------------------------------------------------------- #
+# ---------------------------------------------------------------------------#
 # AppProvider
-# ---------------------------------------------------------------#
+#
+# The design intention of a smart job is to enable a group of actors to each
+# run a state machine as a subprogram of an integrated super program
+# The wikipedia (https://en.wikipedia.org/wiki/Actor_model) software actor 
+# description says :
+# In response to a message that it receives, an actor can : make local decisions, 
+# create more actors, send more messages, and determine how to respond to the 
+# next message received. Actors may modify their own private state, but can only 
+# affect each other through messages (avoiding the need for any locks).
+# ---------------------------------------------------------------------------#
 class AppProvider(object):
   _singleton = None
   _lock = RLock()
@@ -68,45 +85,45 @@ class AppProvider(object):
     self.lock = RLock()
     
   # -------------------------------------------------------------- #
-  # addJobGroup
+  # addAgents
   # ---------------------------------------------------------------#
-  def addJobGroup(self, params, jobCount):
+  def addAgents(self, params, jobRange):
 
     director = self._job[params.id]
     module, className = self.registry.getClassName(params.service)
-    jobRange = range(jobCount)
+    _range = range(jobRange)
 
-    jobs = director.listener.addJobs(jobRange)
+    jobs = director.listener.register(_range)
     params.args.append(0)
-    for jobNum in jobRange:
+    for jobNum in _range:
       jobId = jobs[jobNum]
       # must be an AppDelegate derivative, leveldb param is fixed by protocol
       self._job[jobId] = getattr(module, className)(self.db)
       params.args[-1] = jobNum + 1
-      self.addJob(params,jobId)
+      self.runActor(params,jobId)
     return jobs
 
   # -------------------------------------------------------------- #
-  # addJob
+  # runActor
   # ---------------------------------------------------------------#
-  def addJob(self, params, jobId):
+  def runActor(self, params, jobId):
 
     args = [jobId] + params.args
     self.scheduler.add_job('apibase:dispatch',id=jobId,args=args,kwargs=params.kwargs,misfire_grace_time=3600)
     return jobId
 
   # -------------------------------------------------------------- #
-  # addNewJob
+  # addActor
   # ---------------------------------------------------------------#
-  def addNewJob(self, params, jobId):
+  def addActor(self, params, jobId):
 
     module, className = self.registry.getClassName(params.service)
     if params.type == 'delegate':
       # must be an AppDelegate derivative, leveldb and jobId params are fixed by protocol
-      delegate = getattr(module, className)(self.db, jobId=jobId)
+      actor = getattr(module, className)(self.db, jobId=jobId)
       _jobId = str(uuid.uuid4())
-      self._job[_jobId] = delegate
-      self.addJob(_jobId, params)
+      self._job[_jobId] = actor
+      self.runActor(_jobId, params)
       return _jobId     
     # must be an AppDirector derivative, leveldb and jobId params are fixed by protocol
     if params.caller:
@@ -121,13 +138,13 @@ class AppProvider(object):
       director.listener = listener
       self.scheduler.add_listener(listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
     self._job[jobId] = director
-    self.addJob(params,jobId)
+    self.runActor(params,jobId)
     return jobId
 
   # -------------------------------------------------------------- #
   # promote
   # ---------------------------------------------------------------#
-  def promote(self, _params, jobId=None, jobCount=None):
+  def promote(self, _params, jobId=None, jobRange=None):
 
     params = Params(_params)
     with self.lock:
@@ -144,61 +161,55 @@ class AppProvider(object):
         if params.type == 'delegate':
           if params.responder == 'listener':
             # a live director program has dispatched a bound delegate
-            return self.addJobGroup(params, jobCount)            
+            return self.addAgents(params, jobRange)            
           elif params.responder == 'self':
             # a live director program has dispatched an unbound delegate
             if not jobId:
               jobId = params.id
-            return self.addNewJob(params,jobId)
+            return self.a(params,jobId)
         else:
           # a live director program is promoted, ie, state machine is promoted
-          return self.addJob(params, params.id)
+          return self.runActor(params, params.id)
       # a director program is submitted for scheduling
-      return self.addNewJob(params,jobId)
+      return self.addActor(params,jobId)
 
   # -------------------------------------------------------------- #
-  # getStreamGen
+  # resolve
   # ---------------------------------------------------------------#
-  def getStreamGen(self, _params):
-
+  def resolve(self, _params):
+    
+    params = Params(_params)
+    module, className = self.registry.getClassName(params.service)    
+    actor = getattr(module, className)(self.db)
     with self.lock:
-      params = Params(_params)
       try:
-        delegate = self._job[params.id]
-      except KeyError:
-        logger.error('jobId not found in job register : ' + params.id)
-      except AttributeError:
-        raise Exception("required param 'id' not found")  
-      try:
-        logger.info('####### streamPrvdr : ' + delegate.__class__.__name__)
-        streamGen = delegate.renderStream(params.dataKey)
+        return actor(*params.args, **params.kwargs)
       except Exception as ex:
         logger.error('stream generation failed : ' + str(ex))
         raise
-      self.evalComplete(delegate, params.id)
-      return streamGen
+      #self.evalComplete(actor, params.id)
 
   # -------------------------------------------------------------- #
   # evalComplete
   # ---------------------------------------------------------------#
-  def evalComplete(self, delegate, jobId):
+  def evalComplete(self, actor, jobId):
     try:
-      delegate.state
+      actor.state
     except AttributeError:
       # only stateful jobs are retained
       del(self._job[jobId])
     else:
-      if not delegate.state.complete:
+      if not actor.state.complete:
         return
       logMsg = 'director[%s] is complete, removing it now ...'
-      if delegate.state.failed:
+      if actor.state.failed:
         logMsg = 'director[%s] has failed, removing it now ...'
       logger.info(logMsg, jobId)
-      delegate.onComplete()
-      if delegate.appType == 'director':
+      actor.onComplete()
+      if actor.appType == 'director':
         self.removeMeta(jobId)
-      if hasattr(delegate, 'listener'):
-        self.scheduler.remove_listener(delegate.listener)
+      if hasattr(actor, 'listener'):
+        self.scheduler.remove_listener(actor.listener)
       del(self._job[jobId])
 
   # -------------------------------------------------------------- #
@@ -264,4 +275,3 @@ class Params(object):
       self.__dict__.update(params)
     except:
       raise Exception('params is not a dict')     
-
