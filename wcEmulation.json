@@ -28,17 +28,18 @@ pmeta={
   },
   "WcInputXml2Sas" : {
     "inputTxnFilter" : "ALL",
+    "pmovDsId" : "1804",
+    "reclen" : 2000,
+    "runMode" : 1,
+    "S3Path" : "/idw/data/projectarea/pj49/actsydney/wc/basedata",
+    "schemaRepo" : "webapi/apiservice/xmlToSas",				
     "tmpltModule" : "webapi/apiservice/xmlToSas",
     "tmpltName" : "normalToSas.jinja",
-    "pmovDsId" : "1804",
-    "S3Path" : "/idw/data/projectarea/pj49/actsydney/wc/basedata",
-    "runMode" : 1,
-    "schemaRepo" : "webapi/apiservice/xmlToSas",				
     "xmlSchema" : "wcXmlSchema.json",
     "globals" : ["*"]
   },
   "NormalizeXml" : {
-    "inputXmlFile" : "WC_201804x.txt",
+    "inputXmlFile" : "WC_201804.txt",
     "delimiter" : "<>",
     "xmlSchema" : "wcXmlSchema.json",
     "globals" : ["ciwork","linkBase"]
