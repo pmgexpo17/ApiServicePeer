@@ -61,8 +61,8 @@ class WcEmltnDirector(AppDirector):
   # -------------------------------------------------------------- #
   # onComplete
   # ---------------------------------------------------------------#
-  def onComplete(self):
-    self.putApiRequest(201)
+  #def onComplete(self):
+    #self.putApiRequest(201)
 
   # -------------------------------------------------------------- #
   # onError
@@ -90,7 +90,7 @@ class WcEmltnDirector(AppDirector):
       pdata = (classRef,self.jobId)
       params = '{"type":"director","id":null,"responder":"self","service":"%s","args":[],"caller":"%s"}' % pdata
       data = [('job',params)]
-      apiUrl = 'http://localhost:5000/api/v1/job'
+      apiUrl = 'http://localhost:5000/api/v1/smart'
       response = requests.put(apiUrl,data=data)
       logger.info('api response ' + response.text)
     elif self.state.transition == 'EMLTN_BYSGMT_NOWAIT':      
@@ -99,7 +99,7 @@ class WcEmltnDirector(AppDirector):
       pdata = (self.jobId,classRef, json.dumps(args))
       params = '{"type":"delegate","id":"%s","responder":"listener","service":"%s","args":%s}' % pdata
       data = [('job',params)]
-      apiUrl = 'http://localhost:5000/api/v1/job/%d' % self.sgmtCount
+      apiUrl = 'http://localhost:5000/api/v1/async/%d' % self.sgmtCount
       response = requests.post(apiUrl,data=data)
       logger.info('api response ' + response.text)
 
@@ -323,20 +323,13 @@ class WcEmltnListener(AppListener):
       self.putApiRequest(500)
 
   # -------------------------------------------------------------- #
-  # addJob - add a live job id
+  # register - add a list of live job ids
   # ---------------------------------------------------------------#
-  def addJob(self, jobId):
-    self.jobIdList = [jobId]
-
-  # -------------------------------------------------------------- #
-  # addJobs - add a list of live job ids
-  # ---------------------------------------------------------------#
-  def addJobs(self, jobRange):
+  def register(self, jobRange=None):
 
     self.jobIdList = jobIds = []
     for jobNum in jobRange:
-      jobId = str(uuid.uuid4())
-      jobIds.append(jobId)
+      jobIds += str(uuid.uuid4())
     return jobIds
 
   # -------------------------------------------------------------- #
@@ -347,7 +340,7 @@ class WcEmltnListener(AppListener):
     pdata = (self.jobId,classRef, json.dumps({'signal':signal}))
     params = '{"type":"director","id":"%s","service":"%s","kwargs":%s,"args":[]}' % pdata
     data = [('job',params)]
-    apiUrl = 'http://localhost:5000/api/v1/job/1'
+    apiUrl = 'http://localhost:5000/api/v1/smart'
     response = requests.post(apiUrl,data=data)
     logger.info('api response ' + response.text)
 
@@ -442,13 +435,13 @@ class WcEmailUnit(AppResolveUnit):
 
 #    errNote = '\nsystem message : %s\n' % errMsg if errMsg else ''
     errBody = '''
-Hi CI workerscomp team,
-CI workerscomp %s.sas has errored :<
-Please inspect %s.log to get the error details
-Your workerscomp emulation log region is : %s/log
-Then contact us for further investigation
-Thanks and Regards,
-CI workerscomp emulation team
+  Hi CI workerscomp team,
+    CI workerscomp %s.sas has errored :<
+    Please inspect %s.log to get the error details
+    Your workerscomp emulation log region is : %s/log
+    Then contact us for further investigation
+  Thanks and Regards,
+  CI workerscomp emulation team
 '''
     if context == 'ERROR':
       subject = 'ci workerscomp emulation has errored :<'
