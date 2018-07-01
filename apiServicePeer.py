@@ -1,16 +1,24 @@
+# The MIT License
+#
 # Copyright (c) 2018 Peter A McGill
 #
-#  Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
 #
-#  Unless required by applicable law or agreed to in writing, software
-#  distributed under the License is distributed on an "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#  See the License for the specific language governing permissions and
-#  limitations under the License. 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
 #
 import logging
 import sys
@@ -39,8 +47,8 @@ parser = reqparse.RequestParser()
 parser.add_argument('job')
 parser.add_argument('pmeta')
 
-# adds a new program job item, and runs it (TO DO: at the datetime specified)
-class PutJob(Resource):
+# promotes a smart, ie, stateful long running job
+class SmartJob(Resource):
 
   def put(self):
     setPrvdr()
@@ -65,23 +73,23 @@ class PutJob(Resource):
         return {'status':201,'job_id':jobId}, 201
       return {'status':500,'error':"form parameter 'job' not found"}, 500
     except Exception as ex:
-      return {'status':404,'error':str(ex)}, 404
+      return {'status':500,'error':str(ex)}, 500
     else:
       return {'status':201,'job_id':jobId}, 201
 
-# promotes a live program job item
-class PostJob(Resource):
+# promotes one or more asynchonous jobs
+class AsyncJob(Resource):
 
-  def post(self, jobCount):
+  def post(self, jobRange):
     setPrvdr()
     args = parser.parse_args()
     if args['job']:
       params = json.loads(args['job'])
       logger.info('job args : ' + str(params))
       try:
-        jobList = g.prvdr.promote(params,jobCount=int(jobCount))
+        jobList = g.prvdr.promote(params,jobRange=int(jobRange))
       except Exception as ex:
-        return {'status':404,'error':str(ex)}, 404
+        return {'status':500,'error':str(ex)}, 500
       else:
         return {'status':201,'job_ids':jobList}, 201
     else:
@@ -91,19 +99,20 @@ parser.add_argument('id')
 parser.add_argument('dataKey')
 
 # adds a new program job item, and runs it (TO DO: at the datetime specified)
-class DataJob(Resource):
+class SyncJob(Resource):
 
   def get(self):
     setPrvdr()
     args = parser.parse_args()
-    if args['id'] and args['dataKey']:
-      logger.info('job args : ' + str(args))
+    if args['job']:
+      params = json.loads(args['job'])
+      logger.info('job args : ' + str(params))
       try:      
-        streamGen = g.prvdr.getStreamGen(args)
+        response = g.prvdr.resolve(args)
       except Exception as ex:
         return {'status':500,'error':str(ex)}, 500
       else:
-        return streamGen
+        return response
     else:
       return {'status':500,'error':"either 'id' and 'dataKey' form parameter not found"}, 500
 
@@ -122,9 +131,9 @@ def create_app(app_config=None):
 flask = create_app()
 flaskApi = Api(flask)
 
-flaskApi.add_resource(PutJob, '/api/v1/job')
-flaskApi.add_resource(PostJob, '/api/v1/job/<jobCount>')
-flaskApi.add_resource(DataJob, '/api/v1/data')
+flaskApi.add_resource(SmartJob, '/api/v1/smart')
+flaskApi.add_resource(AsyncJob, '/api/v1/async/<jobRange>')
+flaskApi.add_resource(SyncJob, '/api/v1/sync')
 
 from cheroot.wsgi import PathInfoDispatcher
 from cheroot.wsgi import Server as wsgiserver
