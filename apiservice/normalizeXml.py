@@ -1,18 +1,26 @@
+# The MIT License
+#
 # Copyright (c) 2018 Peter A McGill
 #
-#  Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
 #
-#  Unless required by applicable law or agreed to in writing, software
-#  distributed under the License is distributed on an "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#  See the License for the specific language governing permissions and
-#  limitations under the License. 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
 #
-from apiservice import AppDirector, AppResolveUnit, SasScriptPrvdr, StreamPrvdr, logger
+from apiservice import AppDirector, AppResolveUnit, MetaReader, logger
 from flask import Response
 from lxml.etree import XMLParser, ParseError
 from threading import RLock
@@ -20,12 +28,11 @@ import os, sys, time
 import logging
 import json
 import requests, re
-from StringIO import StringIO
 
 # -------------------------------------------------------------- #
 # NormalizeXml
 # ---------------------------------------------------------------#
-class NormalizeXml(AppDirector, StreamPrvdr):
+class NormalizeXml(AppDirector):
 
   def __init__(self, leveldb, jobId, caller):
     super(NormalizeXml, self).__init__(leveldb, jobId)
@@ -35,15 +42,15 @@ class NormalizeXml(AppDirector, StreamPrvdr):
     self.state.hasNext = True
     self.resolve = ResolveUnit(leveldb)
     self.resolve.state = self.state
-    self.dlm = '<>'
     self.lock = RLock()
 
   # -------------------------------------------------------------- #
   # _start
   # ---------------------------------------------------------------#                                          
   def _start(self):
-    scriptPrvdr = WcScriptPrvdr(self._leveldb,self.jobId,self.scaller)
-    tsXref, pmeta = scriptPrvdr()
+    metaPrvdr = MetaPrvdr(self._leveldb,self.jobId,self.scaller)
+    tsXref, pmeta = metaPrvdr()
+    self.dlm = pmeta['delimiter']
     self.tsXref = tsXref
     self.resolve._start(tsXref, pmeta)
 
@@ -51,12 +58,6 @@ class NormalizeXml(AppDirector, StreamPrvdr):
   # advance
   # ---------------------------------------------------------------#                                          
   def advance(self, signal=None):
-    if self.state.transition == 'RENDER_STREAM' and not self.resolve.toRender:
-      logger.info('state transition is resolved, advancing ...')
-      self.state.transition = 'NA'
-      self.state.inTransition = False 
-      self.state.complete = True
-      self.state.hasNext = False
     self.state.current = self.state.next
     return self.state
 
@@ -64,8 +65,8 @@ class NormalizeXml(AppDirector, StreamPrvdr):
   # quicken
   # ---------------------------------------------------------------#
   def quicken(self):      
-    logger.info('state transition : ' + self.state.transition)
-    if self.state.transition == 'RENDER_STREAM':
+    if self.state.complete:
+      logger.info('normalize xml complete, so quicken ...')
       self.putApiRequest(201)
 
   # -------------------------------------------------------------- #
@@ -80,29 +81,6 @@ class NormalizeXml(AppDirector, StreamPrvdr):
   def onError(self, errorMsg):
     self.putApiRequest(500)
 
-	# -------------------------------------------------------------- #
-	# renderStream
-	# ---------------------------------------------------------------#
-  def renderStream(self, tableName):
-    logger.info('RENDER_STREAM : ' + tableName)
-    startKey = '%s|%s|ROW1' % (self.tsXref, tableName)
-    endKey = '%s|%s|ROW:' % (self.tsXref, tableName)
-    itemIter = self._leveldb.RangeIter(startKey, endKey)
-    def generate():
-      while True:
-        try:
-          key, item = itemIter.next()
-          try:
-            row = self.dlm.join(json.loads(item))
-          except Exception as ex:
-            logger.error('json loads failed : ' + str(ex))
-            raise
-          yield row + '\n'
-        except StopIteration:
-          break
-    self.resolve.toRender.remove(tableName)
-    return Response(generate(), status=201, mimetype='text/html')
-
   # -------------------------------------------------------------- #
   # putApiRequest
   # ---------------------------------------------------------------#
@@ -111,7 +89,7 @@ class NormalizeXml(AppDirector, StreamPrvdr):
     pdata = (self.caller,classRef,json.dumps({'callee':self.jobId,'signal':signal}))
     params = '{"type":"director","id":"%s","service":"%s","args":[],"kwargs":%s}' % pdata
     data = [('job',params)]
-    apiUrl = 'http://localhost:5000/api/v1/job/1'
+    apiUrl = 'http://localhost:5000/api/v1/smart'
     response = requests.post(apiUrl,data=data)
     logger.info('api response ' + response.text)
 
@@ -122,93 +100,20 @@ class ResolveUnit(AppResolveUnit):
 
   def __init__(self, leveldb):
     self._leveldb = leveldb
-    self.__dict__['NORMALISE_XML'] = self.NORMALISE_XML
-    self.__dict__['RENDER_STREAM'] = self.RENDER_STREAM
+    self.__dict__['EVAL_XML_SCHEMA'] = self.EVAL_XML_SCHEMA
+    self.__dict__['NORMALIZE_XML'] = self.NORMALIZE_XML
     self.pmeta = None
 
-	# -------------------------------------------------------------- #
-	# NORMALISE_XML
-	# ---------------------------------------------------------------#
-  def NORMALISE_XML(self):
-
-    parser = XMLParser(target=self, recover=True)
-    logger.info('parsing : ' + self.inputXmlFile)
-    with open(self.inputXmlFile, 'r') as fhr:
-      parser.feed('<Root>\n')
-      for xmlRecord in fhr:
-        self.next()
-        try:
-          parser.feed(xmlRecord)
-        except ParseError as ex:
-          logger.error(str(ex))
-        except KeyError as ex:
-          logger.error('!! parser key error !!' + str(ex))
-    parser.feed('<\Root>\n')
-    self.complete()
-    parser.close()
-    self.state.next = 'RENDER_STREAM'
-    self.state.hasNext = True
-    return self.state
-
-	# -------------------------------------------------------------- #
-	# RENDER_STREAM
-	# ---------------------------------------------------------------#
-  def RENDER_STREAM(self):
-
-    if self.state.transition == 'NA':
-      self.toRender = self.tzrByName.keys()
-      del(self.tzrByKey)
-      del(self.tzrByName)
-      self.state.next = 'COMPLETE'
-      self.state.transition = 'RENDER_STREAM'
-      self.state.inTransition = True
-      self.state.hasNext = True
-    return self.state
-    
   # -------------------------------------------------------------- #
   # _start
   # ---------------------------------------------------------------#
   def _start(self, tsXref, pmeta):
     logger.info('[START] NormalizeXml._start')
-    self.state.current = 'NORMALISE_XML'
+    self.state.current = 'EVAL_XML_SCHEMA'
     self.tsXref = tsXref
     logger.info('tsXref : ' + tsXref)
     self.pmeta = pmeta
-    xmlSchema = '%s/assets/%s' %  (self.pmeta['ciwork'],self.pmeta['xmlSchema'])
-    self.importXmlSchema(xmlSchema)
     self.checkXmlExists()
-
-  # -------------------------------------------------------------- #
-  # importXmlSchema
-  # ---------------------------------------------------------------#
-  def importXmlSchema(self, xmlSchema):
-    logger.info('[START] NormalizeXml.importXmlSchema')
-    self.depth = 0
-    self.rowcount = 0
-    self.tzrByKey = {}
-    tzrByName = {}      
-    with open(xmlSchema,'r') as fhr:
-      schemaDoc = json.load(fhr)
-    tableMap = schemaDoc['tableMap']
-    tableDefn = schemaDoc['tableDefn']
-    columnOrder = schemaDoc['columnOrder']
-    endKey = schemaDoc['endKey']
-    for tableName, detail in tableDefn.items():
-      logger.debug('tableName : %s, details : %s' % (tableName, str(detail)))
-      tablizer = XmlTablizer(self._leveldb,self.tsXref,detail,tableName)
-      try :
-        tablizer.endKey = endKey[tableName]  
-      except KeyError:
-        tablizer.endKey = columnOrder[tableName][0]
-      tablizer.COLS['order'] = columnOrder[tableName]
-      tzrByName[tableName] = tablizer
-
-    columnDefn = schemaDoc['columnDefn']
-    for nodeKey, tableName in tableMap.items():
-      tablizer = tzrByName[tableName]
-      tablizer.COLS[nodeKey] = columnDefn[nodeKey]
-      self.tzrByKey[nodeKey] = tablizer
-    self.tzrByName = tzrByName
 
   # -------------------------------------------------------------- #
   # checkXmlExists
@@ -224,6 +129,71 @@ class ResolveUnit(AppResolveUnit):
       logger.error(errmsg)
       raise Exception(errmsg)
     self.inputXmlFile = inputXmlFile
+
+	# -------------------------------------------------------------- #
+	# EVAL_XML_SCHEMA
+	# ---------------------------------------------------------------#
+  def EVAL_XML_SCHEMA(self):
+    logger.info('state : EVAL_XML_SCHEMA')
+    xmlSchema = '%s/assets/%s' %  (self.pmeta['ciwork'],self.pmeta['xmlSchema'])
+    self.depth = 0
+    self.rowcount = 0
+    self.tzrByKey = {}
+    tzrByName = {}      
+    with open(xmlSchema,'r') as fhr:
+      schemaDoc = json.load(fhr)
+    tableMap = schemaDoc['tableMap']
+    tableDefn = schemaDoc['tableDefn']
+    columnOrder = schemaDoc['columnOrder']
+    endKey = schemaDoc['endKey']
+    for tableName, detail in tableDefn.items():
+      if not detail['keep']:
+        continue
+      logger.debug('tableName : %s, details : %s' % (tableName, str(detail)))
+      tablizer = XmlTablizer(self._leveldb,self.tsXref,detail,tableName)
+      try :
+        tablizer.endKey = endKey[tableName]  
+      except KeyError:
+        tablizer.endKey = columnOrder[tableName][0]
+      tablizer.COLS['order'] = columnOrder[tableName]
+      tzrByName[tableName] = tablizer
+
+    columnDefn = schemaDoc['columnDefn']
+    for nodeKey, tableName in tableMap.items():
+      try:
+        tablizer = tzrByName[tableName]
+      except KeyError:
+        continue
+      tablizer.COLS[nodeKey] = columnDefn[nodeKey]
+      self.tzrByKey[nodeKey] = tablizer
+    self.tzrByName = tzrByName
+    self.state.next = 'NORMALIZE_XML'
+    self.state.hasNext = True
+    return self.state
+
+	# -------------------------------------------------------------- #
+	# NORMALIZE_XML
+	# ---------------------------------------------------------------#
+  def NORMALIZE_XML(self):
+    logger.info('state : NORMALIZE_XML')
+    parser = XMLParser(target=self, recover=True)
+    logger.info('parsing : ' + self.inputXmlFile)
+    with open(self.inputXmlFile, 'r') as fhr:
+      parser.feed('<Root>\n')
+      for xmlRecord in fhr:
+        self.next()
+        try:
+          parser.feed(xmlRecord)
+        except ParseError as ex:
+          logger.error(str(ex))
+        except KeyError as ex:
+          logger.error('!! parser key error !!' + str(ex))
+    parser.feed('<\Root>\n')
+    self.complete()
+    parser.close()
+    self.state.complete = True
+    self.state.hasNext = False
+    return self.state
 
   # -------------------------------------------------------------- #
   # next
@@ -242,7 +212,7 @@ class ResolveUnit(AppResolveUnit):
       nodeKey = '%s|%d' % (tag, self.depth)
       self.tzrByKey[nodeKey]
     except KeyError:
-      logger.warn('XmlTablizer has no mapping for node : ' + nodeKey)
+      logger.debug('XmlTablizer has no mapping for node : ' + nodeKey)
     else:
       self.tzrByKey[nodeKey].addNext(nodeKey, attrib)
 
@@ -363,15 +333,14 @@ class XmlTablizer(object):
     return []
 
 # -------------------------------------------------------------- #
-# WcScriptPrvdr
+# MetaPrvdr
 # ---------------------------------------------------------------#
-class WcScriptPrvdr(SasScriptPrvdr):
+class MetaPrvdr(MetaReader):
 
   def __init__(self, leveldb, jobId, scaller):
-    self._leveldb = leveldb
+    super(PrgmMetaPrvdr, self).__init(leveldb)
     self.jobId = jobId
     self.scaller = scaller
-    self.pmeta = None
 
   # -------------------------------------------------------------- #
   # __call__
@@ -390,12 +359,7 @@ class WcScriptPrvdr(SasScriptPrvdr):
   # ---------------------------------------------------------------#
   def getProgramMeta(self):
     dbKey = 'PMETA|' + self.scaller
-    try:
-      pmetadoc = self._leveldb.Get(dbKey)
-    except KeyError:
-      raise Exception('EEOWW! pmeta json document not found : ' + dbKey)
-
-    pmetaAll = json.loads(pmetadoc)
+    pmetaAll = self.restoreMeta(dbKey)
     pmeta = pmetaAll['NormalizeXml']
     _globals = pmeta['globals'] # append global vars in this list
     del(pmeta['globals'])
