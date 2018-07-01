@@ -80,7 +80,7 @@ class WcEmltnInputPrvdr(AppDirector):
       pdata = (classRef,json.dumps([self.caller,self.jobId]))
       params = '{"type":"director","id":null,"responder":"self","service":"%s","args":[],"caller":%s}' % pdata
       data = [('job',params)]
-      apiUrl = 'http://localhost:5000/api/v1/job'
+      apiUrl = 'http://localhost:5000/api/v1/smart'
       response = requests.put(apiUrl,data=data)
       logger.info('api response ' + response.text)
     elif self.state.complete:
@@ -88,7 +88,7 @@ class WcEmltnInputPrvdr(AppDirector):
       pdata = (self.caller,classRef,json.dumps({'signal':signal}))
       params = '{"type":"director","id":"%s","service":"%s","kwargs":%s,"args":[]}' % pdata
       data = [('job',params)]
-      apiUrl = 'http://localhost:5000/api/v1/job/1'
+      apiUrl = 'http://localhost:5000/api/v1/async/1'
       response = requests.post(apiUrl,data=data)
       logger.info('api response ' + response.text)
 
@@ -114,11 +114,11 @@ class WcResolveUnit(AppResolveUnit):
     self.tsXref = tsXref
     self.pmeta = pmeta
     self.state.current = 'NORMALISE_XML'
-    trnswork = self.pmeta['ciwork'] + '/ssnwork/trnswrk'
-    cnvtwork = self.pmeta['ciwork'] + '/ssnwork/cnvtwrk'
+    trnswrk = self.pmeta['ciwork'] + '/ssnwork/trnswrk'
+    cnvtwrk = self.pmeta['ciwork'] + '/ssnwork/cnvtwrk'
     assets = self.pmeta['ciwork'] + '/assets'
-    self.sysCmd(['mkdir','-p',trnswork])
-    self.sysCmd(['mkdir',cnvtwork])
+    self.sysCmd(['mkdir','-p',trnswrk])
+    self.sysCmd(['mkdir',cnvtwrk])
     self.sysCmd(['mkdir',assets])    
     xmlSchema = '%s/%s' % (self.pmeta['assetLib'], self.pmeta['xmlSchema'])
     self.sysCmd(['cp',xmlSchema,assets]) # copy to here for normalizer to use
@@ -145,6 +145,8 @@ class WcResolveUnit(AppResolveUnit):
       
     sasDefn = {}
     for tableName, detail in tableDefn.items():
+      if not detail['keep']:
+        continue
       _sasDefn = self.getFKeySasDefn(detail['fkeyRef'])
       for nodeKey in columnOrder[tableName]:
         for defnItem in columnDefn[nodeKey]:
@@ -157,6 +159,8 @@ class WcResolveUnit(AppResolveUnit):
   # putUKeySasDefn
   # ---------------------------------------------------------------#
   def putUKeySasDefn(self, tableName, detail, columnDefn):
+    if not detail['keep']:
+      return
     logger.info('table : ' + tableName)
     ukeyRef = detail['ukeyDefn'].pop(0)
     ukeyDefn = detail['ukeyDefn']
@@ -200,6 +204,21 @@ class WcResolveUnit(AppResolveUnit):
   def getSasFormat(self, fmtItem):
     fmtItem += '$' if fmtItem[1][0] == '$' else ''
     return [fmtItem]
+
+	# -------------------------------------------------------------- #
+	# getStreamParams
+	# ---------------------------------------------------------------#
+  def getStreamParams(self, tableName=None):
+    params = {}
+    if not tableName:
+      params['trnswrk'] = self.pmeta['ciwork'] + '/ssnwork/trnswrk'
+      params['reclen'] = self.pmeta['reclen']
+      return params
+    params = {'service':'dataTxnPrvdr:DlmrStreamPrvdr'}
+    params['args'] = ['<>']
+    params['args'] += '%s|%s|ROW1' % (self.tsXref, tableName)
+    params['args'] += '%s|%s|ROW:' % (self.tsXref, tableName)
+    return json.dumps(params)
     
 	# -------------------------------------------------------------- #
 	# NORMALISE_XML
@@ -210,43 +229,31 @@ class WcResolveUnit(AppResolveUnit):
     self.state.next = 'IMPORT_TO_SAS'
     self.state.hasNext = True
     return self.state
-
+  
 	# -------------------------------------------------------------- #
 	# IMPORT_TO_SAS
 	# ---------------------------------------------------------------#
   def IMPORT_TO_SAS(self):
-    trnswrk = self.pmeta['ciwork'] + '/ssnwork/trnswrk'
-    params = {'trnswrk':trnswrk,'jobId':self.callee}
     env = Environment(loader=PackageLoader('apiservice', 'xmlToSas'),trim_blocks=True)
-    template = env.get_template('streamToSas.sas')    
+    template = env.get_template('streamToSas.sas')
+    params = self.getStreamParams()
     for tableName in sorted(self.sasDefn):
       logger.info('IMPORT_TO SAS : ' + tableName)
-      params['tableName'] = tableName      
+      params['tableName'] = tableName
+      params['job'] = self.getStreamParams(tableName)
+      logger.info('sas import params : ' + str(params))
       sasDefn = self.sasDefn[tableName]
-      #logger.info('sas format defn : ' + str(sasDefn))
       sasPrgm = '%s/%s.sas' % (self.pmeta['progLib'],tableName)
       template.stream(params=params,sasDefn=sasDefn).dump(sasPrgm)
-      self.manageDataStream(sasPrgm,tableName)
-    self.state.complete = True
-    self.state.hasNext = False
+      logfile = '%s/log/%s.log' % (self.pmeta['progLib'],tableName)
+      logger.info('run %s in subprocess ...' % sasPrgm)
+      sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
+      self.runProcess(sysArgs)      
+    #self.purgeKeyData(purge=True)
+    self.state.next = 'GET_PMOV_DATA'
+    self.state.hasNext = True
     return self.state
-#    self.state.next = 'GET_PMOV_DATA'
-#    self.state.hasNext = True
-#    return self.state
 
-  def manageDataStream(self, sasPrgm, tableName):
-    
-    dbKey = '%s|%s|ROW' % (self.tsXref, tableName)
-    apiUrl = 'http://localhost:5000/api/v1/data?dbKey=%s'
-    try:
-      streamFh = urllib2.urlopen(apiUrl)
-    except HTTPError as ex
-	raise Exception('data stream http request failed : ' + ex.reason)
-    logfile = '%s/log/%s.log' % (self.pmeta['progLib'],tableName)
-    logger.info('run %s in subprocess ...' % sasPrgm)
-    sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
-    self.runProcess(sysArgs,stdin=streamFh)
-    
 	# -------------------------------------------------------------- #
 	# GET_PMOV_DATA
 	# ---------------------------------------------------------------#
