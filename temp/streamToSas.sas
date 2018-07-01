@@ -1,9 +1,10 @@
-%macro makeDsByStream(tableName, params=);
+%macro makeDsByStream(tableName, reclen, params=);
 
-  filename apiuri url "http://localhost:5000/api/v1/data?&params" debug;
+  /*filename apiuri url "http://localhost:5000/api/v1/data?&params" debug;*/
+  filename apiuri pipe "curl -s http://localhost:5000/api/v1/sync -d 'job=&params'";
 
   DATA trnswrk.&tableName;
-    infile apiuri dlmstr='<>' truncover lrecl=2000;
+    infile apiuri dlmstr='<>' truncover lrecl=&reclen;
     length 
   {% for item in sasDefn %}
     {{ item[0] }} {{ item[1] }}
@@ -20,19 +21,14 @@
 
 %macro makeWcInputDs;
 
-  %let jobId = {{ params.jobId }};
   %let tableName = {{ params.tableName }};
   %let trnswrk = {{ params.trnswrk }};
-
-  DATA _null_;
-    params = cat('id=',"&jobId",'&dataKey=',"&tableName");
-    put 'params : ' params;
-    call symput('params',strip(params));
-  RUN;
+  %let reclen = {{ params.reclen }};
+  %let jparams = {{ params.job }}
 
   libname trnswrk "&trnswrk";
 
-  %makeDsByStream(&tableName,params=%superq(params));
+  %makeDsByStream(&tableName,&reclen,params=%superq(jparams));
   
 %mend;
 %makeWcInputDs;
