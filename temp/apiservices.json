@@ -12,6 +12,16 @@
 		  "fromList":[
         "WcEmltnInputPrvdr"
 		  ]
+	  },
+	  {"name":"normalizeXml",
+		  "fromList":[
+        "NormalizeXml"
+		  ]
+	  },
+	  {"name":"dataTxnPrvdr",
+		  "fromList":[
+        "DlmrStreamPrvdr"
+		  ]
 	  }
   ]
 }
