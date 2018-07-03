@@ -23,6 +23,7 @@
 from abc import ABCMeta, abstractmethod
 from threading import RLock
 from subprocess import Popen, PIPE, call as subcall
+import json
 import logging
 import os
 import re
@@ -37,41 +38,40 @@ class SysCmdUnit(object):
   # ------------------------------------------------------------ #
   # sysCmd
   # -------------------------------------------------------------#
-  def sysCmd(self, sysArgs, cwd=None):
+  def sysCmd(self, sysArgs, stdout=None, cwd=None):
 
     try:
       scriptname = self.__class__.__name__
-      if cwd:
-        return subcall(sysArgs, cwd=cwd)
-      else:
-        return subcall(sysArgs)
+      return subcall(sysArgs, stdout=stdout, cwd=cwd)
     except OSError as ex:
       errmsg = '%s syscmd failed : %s' % (scriptname, str(ex))
-      logger.error(errmsg)
       raise Exception(errmsg)
 
   # ------------------------------------------------------------ #
   # runProcess
   # -------------------------------------------------------------#
-  def runProcess(self, sysArgs, cwd=None):
+  def runProcess(self, sysArgs, cwd=None, stdin=None, stdout=None):
     
     try:
       scriptname = self.__class__.__name__
-      if cwd:
-        prcss = Popen(sysArgs,stdout=PIPE,stderr=PIPE,cwd=cwd)
-      else:
-        prcss = Popen(sysArgs,stdout=PIPE,stderr=PIPE)
+      if stdin:
+        prcss = Popen(sysArgs,stdin=PIPE,cwd=cwd)
+        prcss.communicate(stdin)
+        return
+      elif stdout:
+        prcss = Popen(sysArgs,stdout=stdout,stderr=stdout,cwd=cwd)
+        prcss.communicate()
+        return
+      prcss = Popen(sysArgs,stdout=PIPE,stderr=PIPE,cwd=cwd)
       (stdout, stderr) = prcss.communicate()
       if prcss.returncode:
         if not stderr:
           stderr = ' '.join(sysArgs)
         errmsg = '%s syscmd failed : %s' % (scriptname, stderr)
-        logger.error(errmsg)
         raise Exception(errmsg)
       return stdout
     except OSError as ex:
       errmsg = '%s syscmd failed : %s' % (scriptname, str(ex))
-      logger.error(errmsg)
       raise Exception(errmsg)
 
 # -------------------------------------------------------------- #
@@ -85,7 +85,7 @@ class AppDirector(SysCmdUnit):
     self.jobId = jobId
     self.state = AppState(jobId)
     self.resolve = None
-    self.hasPeerSignal = False
+    self.hasSignal = False
 
   # ------------------------------------------------------------ #
   # generic actor method
@@ -130,8 +130,7 @@ class AppDirector(SysCmdUnit):
           self.quicken()
           break  
         state = self.advance()
-        logger.info('next state : ' + self.state.current)
-      if self.hasPeerSignal:
+      if self.state.hasSignal:
         self.quicken()
     except Exception as ex:
       #self.mailer[state.current]('ERROR')
@@ -173,17 +172,18 @@ class AppDirector(SysCmdUnit):
 class AppState(object):
 
   def __init__(self, jobId=None):
-    self.jobId = jobId
-    self.current = 'INIT'
-    self.next = 'INIT'
-    self.transition = 'NA'
-    self.inTransition = False
-    self.hasNext = False
     self.complete = False
+    self.current = 'INIT'
     self.failed = False
+    self.inTransition = False
+    self.jobId = jobId    
+    self.hasNext = False
+    self.hasSignal = False
     self.lock = RLock()
+    self.next = 'INIT'
     self.status = 'STOPPED'
-
+    self.transition = 'NA'
+    
 # -------------------------------------------------------------- #
 # AppResolveUnit
 # ---------------------------------------------------------------#
@@ -218,17 +218,10 @@ class AppListener(object):
     self.jobId = jobId
 
   # -------------------------------------------------------------- #
-  # addJob - add a live job id
-  # ---------------------------------------------------------------#
-  @abstractmethod
-  def addJob(self, *args, **kwargs):
-    pass
-
-  # -------------------------------------------------------------- #
   # addJobs - add a list of live job ids
   # ---------------------------------------------------------------#
   @abstractmethod
-  def addJobs(self, *args, **kwargs):
+  def register(self, *args, **kwargs):
     pass
 
 # -------------------------------------------------------------- #
