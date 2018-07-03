@@ -23,11 +23,10 @@
 from apiservice import AppDirector, AppResolveUnit, MetaReader, logger
 from flask import Response
 from lxml.etree import XMLParser, ParseError
-from threading import RLock
+import leveldb
 import os, sys, time
-import logging
 import json
-import requests, re
+import requests
 
 # -------------------------------------------------------------- #
 # NormalizeXml
@@ -42,7 +41,6 @@ class NormalizeXml(AppDirector):
     self.state.hasNext = True
     self.resolve = ResolveUnit(leveldb)
     self.resolve.state = self.state
-    self.lock = RLock()
 
   # -------------------------------------------------------------- #
   # _start
@@ -90,7 +88,7 @@ class NormalizeXml(AppDirector):
     params = '{"type":"director","id":"%s","service":"%s","args":[],"kwargs":%s}' % pdata
     data = [('job',params)]
     apiUrl = 'http://localhost:5000/api/v1/smart'
-    response = requests.post(apiUrl,data=data)
+    response = requests.put(apiUrl,data=data)
     logger.info('api response ' + response.text)
 
 # -------------------------------------------------------------- #
@@ -146,11 +144,13 @@ class ResolveUnit(AppResolveUnit):
     tableDefn = schemaDoc['tableDefn']
     columnOrder = schemaDoc['columnOrder']
     endKey = schemaDoc['endKey']
+    self.batch = leveldb.WriteBatch()
     for tableName, detail in tableDefn.items():
       if not detail['keep']:
         continue
       logger.debug('tableName : %s, details : %s' % (tableName, str(detail)))
-      tablizer = XmlTablizer(self._leveldb,self.tsXref,detail,tableName)
+      #tablizer = XmlTablizer(self._leveldb,self.tsXref,detail,tableName)
+      tablizer = XmlTablizer(self._leveldb,self.batch,self.tsXref,detail,tableName)
       try :
         tablizer.endKey = endKey[tableName]  
       except KeyError:
@@ -189,10 +189,10 @@ class ResolveUnit(AppResolveUnit):
         except KeyError as ex:
           logger.error('!! parser key error !!' + str(ex))
     parser.feed('<\Root>\n')
-    self.complete()
     parser.close()
     self.state.complete = True
     self.state.hasNext = False
+    self.state.hasSignal = True
     return self.state
 
   # -------------------------------------------------------------- #
@@ -237,10 +237,7 @@ class ResolveUnit(AppResolveUnit):
     pass
 
   def close(self):
-    # Nothing special to do here
-    pass
-  
-  def complete(self):
+    self._leveldb.Write(self.batch, sync=True)
     logger.info('xml row count : %d' % self.rowcount)
 
 # -------------------------------------------------------------- #
@@ -248,8 +245,9 @@ class ResolveUnit(AppResolveUnit):
 # ---------------------------------------------------------------#
 class XmlTablizer(object):
   
-  def __init__(self, leveldb, tsXref, detail, tableName):
+  def __init__(self, leveldb, batch, tsXref, detail, tableName):
     self._leveldb = leveldb
+    self._batch = batch
     self.tsXref = tsXref
     self.count = 0
     self.ukeyRef = None
@@ -298,7 +296,7 @@ class XmlTablizer(object):
     dbKey = '%s|%s|ROW%s' % (self.tsXref, self.tableName, nodeIndex)
     for nodeKey in self.COLS['order']:
       record += self._record[nodeKey]
-    self._leveldb.Put(dbKey, json.dumps(record))
+    self._batch.Put(dbKey, json.dumps(record))
     logger.debug('%s : %s' % (dbKey, str(record)))
 
   # -------------------------------------------------------------- #
@@ -338,7 +336,7 @@ class XmlTablizer(object):
 class MetaPrvdr(MetaReader):
 
   def __init__(self, leveldb, jobId, scaller):
-    super(PrgmMetaPrvdr, self).__init(leveldb)
+    super(MetaPrvdr, self).__init__(leveldb)
     self.jobId = jobId
     self.scaller = scaller
 
