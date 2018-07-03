@@ -1,10 +1,7 @@
-%macro makeDsByStream(tableName, reclen, params=);
-
-  /*filename apiuri url "http://localhost:5000/api/v1/data?&params" debug;*/
-  filename apiuri pipe "curl -s http://localhost:5000/api/v1/sync -d 'job=&params'";
+%macro makeDsByStream(tableName, reclen);
 
   DATA trnswrk.&tableName;
-    infile apiuri dlmstr='<>' truncover lrecl=&reclen;
+    infile STDIN dlmstr='<>' truncover lrecl=&reclen;
     length 
   {% for item in sasDefn %}
     {{ item[0] }} {{ item[1] }}
@@ -24,11 +21,10 @@
   %let tableName = {{ params.tableName }};
   %let trnswrk = {{ params.trnswrk }};
   %let reclen = {{ params.reclen }};
-  %let jparams = {{ params.job }}
 
   libname trnswrk "&trnswrk";
 
-  %makeDsByStream(&tableName,&reclen,params=%superq(jparams));
+  %makeDsByStream(&tableName,&reclen);
   
 %mend;
 %makeWcInputDs;
