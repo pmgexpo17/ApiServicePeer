@@ -95,26 +95,24 @@ class AsyncJob(Resource):
     else:
       return {'status':500,'error':"form parameter 'job' not found"}, 500
 
-parser.add_argument('id')
-parser.add_argument('dataKey')
-
 # adds a new program job item, and runs it (TO DO: at the datetime specified)
 class SyncJob(Resource):
 
-  def get(self):
+  def post(self):
     setPrvdr()
     args = parser.parse_args()
+    logger.info('args : ' + str(args))
     if args['job']:
       params = json.loads(args['job'])
       logger.info('job args : ' + str(params))
       try:      
-        response = g.prvdr.resolve(args)
+        response = g.prvdr.resolve(params)
       except Exception as ex:
         return {'status':500,'error':str(ex)}, 500
       else:
         return response
     else:
-      return {'status':500,'error':"either 'id' and 'dataKey' form parameter not found"}, 500
+      return {'status':500,'error':"'job' form parameter not found"}, 500
 
 ##
 ## Actually setup the Api resource routing here
