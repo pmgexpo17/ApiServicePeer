@@ -85,9 +85,9 @@ class AppProvider(object):
     self.lock = RLock()
     
   # -------------------------------------------------------------- #
-  # addAgents
+  # addActorGroup
   # ---------------------------------------------------------------#
-  def addAgents(self, params, jobRange):
+  def addActorGroup(self, params, jobRange):
 
     director = self._job[params.id]
     module, className = self.registry.getClassName(params.service)
@@ -118,13 +118,6 @@ class AppProvider(object):
   def addActor(self, params, jobId):
 
     module, className = self.registry.getClassName(params.service)
-    if params.type == 'delegate':
-      # must be an AppDelegate derivative, leveldb and jobId params are fixed by protocol
-      actor = getattr(module, className)(self.db, jobId=jobId)
-      _jobId = str(uuid.uuid4())
-      self._job[_jobId] = actor
-      self.runActor(_jobId, params)
-      return _jobId     
     # must be an AppDirector derivative, leveldb and jobId params are fixed by protocol
     if params.caller:
       director = getattr(module, className)(self.db, jobId, params.caller)
@@ -161,7 +154,7 @@ class AppProvider(object):
         if params.type == 'delegate':
           if params.responder == 'listener':
             # a live director program has dispatched a bound delegate
-            return self.addAgents(params, jobRange)            
+            return self.addActorGroup(params, jobRange)            
           elif params.responder == 'self':
             # a live director program has dispatched an unbound delegate
             if not jobId:
@@ -183,7 +176,9 @@ class AppProvider(object):
     actor = getattr(module, className)(self.db)
     with self.lock:
       try:
-        return actor(*params.args, **params.kwargs)
+        if params.kwargs:
+          return actor(*params.args, **params.kwargs)
+        return actor(*params.args)
       except Exception as ex:
         logger.error('stream generation failed : ' + str(ex))
         raise
