@@ -1,9 +1,8 @@
 from apiservice import AppDirector, AppResolveUnit, SasScriptPrvdr, logger
 from jinja2 import Environment, PackageLoader
 import os, sys, time
-import logging
 import json
-import requests, re
+import requests
 
 # -------------------------------------------------------------- #
 # WcEmltnInputPrvdr
@@ -113,7 +112,8 @@ class WcResolveUnit(AppResolveUnit):
     logger.info('[START] WcResolveUnit._start')
     self.tsXref = tsXref
     self.pmeta = pmeta
-    self.state.current = 'NORMALISE_XML'
+    #self.state.current = 'NORMALISE_XML'
+    self.state.current = 'IMPORT_TO_SAS'
     trnswrk = self.pmeta['ciwork'] + '/ssnwork/trnswrk'
     cnvtwrk = self.pmeta['ciwork'] + '/ssnwork/cnvtwrk'
     assets = self.pmeta['ciwork'] + '/assets'
@@ -206,19 +206,16 @@ class WcResolveUnit(AppResolveUnit):
     return [fmtItem]
 
 	# -------------------------------------------------------------- #
-	# getStreamParams
+	# getDataStream
 	# ---------------------------------------------------------------#
-  def getStreamParams(self, tableName=None):
-    params = {}
-    if not tableName:
-      params['trnswrk'] = self.pmeta['ciwork'] + '/ssnwork/trnswrk'
-      params['reclen'] = self.pmeta['reclen']
-      return params
-    params = {'service':'dataTxnPrvdr:DlmrStreamPrvdr'}
-    params['args'] = ['<>']
-    params['args'] += '%s|%s|ROW1' % (self.tsXref, tableName)
-    params['args'] += '%s|%s|ROW:' % (self.tsXref, tableName)
-    return json.dumps(params)
+  def getDataStream(self, tableName=None):
+    pdata = ['<>']
+    pdata.append('%s|%s|ROW1' % (self.tsXref, tableName))
+    pdata.append('%s|%s|ROW:' % (self.tsXref, tableName))
+    params = '{"service":"dataTxnPrvdr:DlmrStreamPrvdr","args":%s}' % json.dumps(pdata)
+    data = [('job',params)]
+    apiUrl = 'http://localhost:5000/api/v1/sync'
+    return requests.post(apiUrl,data=data)
     
 	# -------------------------------------------------------------- #
 	# NORMALISE_XML
@@ -236,19 +233,25 @@ class WcResolveUnit(AppResolveUnit):
   def IMPORT_TO_SAS(self):
     env = Environment(loader=PackageLoader('apiservice', 'xmlToSas'),trim_blocks=True)
     template = env.get_template('streamToSas.sas')
-    params = self.getStreamParams()
+    trnswrk = self.pmeta['ciwork'] + '/ssnwork/trnswrk'
+    params = {'trnswrk': trnswrk, 'reclen': self.pmeta['reclen']}
     for tableName in sorted(self.sasDefn):
       logger.info('IMPORT_TO SAS : ' + tableName)
       params['tableName'] = tableName
-      params['job'] = self.getStreamParams(tableName)
       logger.info('sas import params : ' + str(params))
       sasDefn = self.sasDefn[tableName]
       sasPrgm = '%s/%s.sas' % (self.pmeta['progLib'],tableName)
       template.stream(params=params,sasDefn=sasDefn).dump(sasPrgm)
       logfile = '%s/log/%s.log' % (self.pmeta['progLib'],tableName)
-      logger.info('run %s in subprocess ...' % sasPrgm)
       sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
-      self.runProcess(sysArgs)      
+      dstream = self.getDataStream(tableName)
+      if dstream.status_code != 201:
+        raise Exception('data stream api request failed[%d] : %s' % (dstream.status_code,dstream.text))
+      logger.info('run %s in subprocess ...' % sasPrgm)
+      self.runProcess(sysArgs,stdin=dstream.text)
+      break
+    self.state.hasNext = False
+    self.state.complete = True
     #self.purgeKeyData(purge=True)
     self.state.next = 'GET_PMOV_DATA'
     self.state.hasNext = True
@@ -325,7 +328,7 @@ class WcResolveUnit(AppResolveUnit):
 class WcScriptPrvdr(SasScriptPrvdr):
 
   def __init__(self, leveldb, jobId, caller):
-    self._leveldb = leveldb
+    super(WcScriptPrvdr, self).__init__(leveldb)
     self.jobId = jobId
     self.caller = caller
     self.pmeta = None
@@ -335,11 +338,12 @@ class WcScriptPrvdr(SasScriptPrvdr):
   # ---------------------------------------------------------------#
   def __call__(self):
     self.pmeta = self.getProgramMeta()
-    dbKey = 'TSXREF|' + self.caller
-    try:
-      tsXref = self._leveldb.Get(dbKey)
-    except KeyError:
-      raise Exception('EEOWW! tsXref param not found : ' + dbKey)
+    #dbKey = 'TSXREF|' + self.caller
+    #try:
+    #  tsXref = self._leveldb.Get(dbKey)
+    #except KeyError:
+    #  raise Exception('EEOWW! tsXref param not found : ' + dbKey)
+    tsXref = 180703074802
     self.compileScript('wcInputXml2Sas.sas')
     return (tsXref, self.pmeta)
 
