@@ -61,9 +61,9 @@ class WcEmltnDirector(AppDirector):
   # -------------------------------------------------------------- #
   # onComplete
   # ---------------------------------------------------------------#
-  #def onComplete(self):
-    #self.putApiRequest(201)
-
+  def onComplete(self):
+    pass
+    
   # -------------------------------------------------------------- #
   # onError
   # ---------------------------------------------------------------#
@@ -451,10 +451,10 @@ class WcEmailUnit(AppResolveUnit):
 # -------------------------------------------------------------- #
 # WcScriptPrvdr
 # ---------------------------------------------------------------#
-class WcScriptPrvdr(SasScriptPrvdr):
+class WcScriptPrvdr(SasScriptPrvdr, SysCmdUnit):
   
   def __init__(self, leveldb, jobId):
-    self._leveldb = leveldb
+    super(WcScriptPrvdr, self).__init__(leveldb)
     self.jobId = jobId
     
   # -------------------------------------------------------------- #
