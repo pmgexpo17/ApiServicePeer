@@ -136,8 +136,8 @@ flaskApi.add_resource(SyncJob, '/api/v1/sync')
 from cheroot.wsgi import PathInfoDispatcher
 from cheroot.wsgi import Server as wsgiserver
 
-delegate = PathInfoDispatcher({'/': flask})
-server = wsgiserver(('0.0.0.0', 5000), delegate)
+wsgiapp = PathInfoDispatcher({'/': flask})
+server = wsgiserver(('0.0.0.0', 5000), wsgiapp)
 
 if __name__ == '__main__':
    try:
