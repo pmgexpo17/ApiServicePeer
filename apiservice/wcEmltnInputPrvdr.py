@@ -51,12 +51,6 @@ class WcEmltnInputPrvdr(AppDirector):
     return self.state
 
   # -------------------------------------------------------------- #
-  # onComplete
-  # ---------------------------------------------------------------#
-  def onComplete(self):
-    self.putApiRequest(201)
-
-  # -------------------------------------------------------------- #
   # onError
   # ---------------------------------------------------------------#
   def onError(self, errorMsg):
@@ -69,6 +63,8 @@ class WcEmltnInputPrvdr(AppDirector):
     logger.info('state transition : ' + self.state.transition)
     if self.state.transition == 'NORMALISE_XML':
       self.putApiRequest(201)
+    elif self.state.complete:
+      self.putApiRequest(201)
 
   # -------------------------------------------------------------- #
   # putApiRequest
@@ -77,7 +73,7 @@ class WcEmltnInputPrvdr(AppDirector):
     if self.state.transition == 'NORMALISE_XML':
       classRef = 'normalizeXml:NormalizeXml'
       pdata = (classRef,json.dumps([self.caller,self.jobId]))
-      params = '{"type":"director","id":null,"responder":"self","service":"%s","args":[],"caller":%s}' % pdata
+      params = '{"type":"director","id":null,"service":"%s","args":[],"caller":%s}' % pdata
       data = [('job',params)]
       apiUrl = 'http://localhost:5000/api/v1/smart'
       response = requests.put(apiUrl,data=data)
@@ -112,8 +108,7 @@ class WcResolveUnit(AppResolveUnit):
     logger.info('[START] WcResolveUnit._start')
     self.tsXref = tsXref
     self.pmeta = pmeta
-    #self.state.current = 'NORMALISE_XML'
-    self.state.current = 'IMPORT_TO_SAS'
+    self.state.current = 'NORMALISE_XML'
     trnswrk = self.pmeta['ciwork'] + '/ssnwork/trnswrk'
     cnvtwrk = self.pmeta['ciwork'] + '/ssnwork/cnvtwrk'
     assets = self.pmeta['ciwork'] + '/assets'
@@ -216,6 +211,20 @@ class WcResolveUnit(AppResolveUnit):
     data = [('job',params)]
     apiUrl = 'http://localhost:5000/api/v1/sync'
     return requests.post(apiUrl,data=data)
+
+	# -------------------------------------------------------------- #
+	# purgeStreamData
+	# ---------------------------------------------------------------#
+  def purgeDataStream(self):
+    pdata = []
+    startKey = '%s|/' % self.tsXref
+    endKey = '%s||' % self.tsXref
+    classRef = 'dataTxnPrvdr:DelDataUnit'
+    pdata = (classRef,json.dumps([startKey,endKey]))
+    params = '{"type":"delegate","id":null,"service":"%s","args":%s}' % pdata
+    data = [('job',params)]
+    apiUrl = 'http://localhost:5000/api/v1/async/1'
+    return requests.post(apiUrl,data=data)
     
 	# -------------------------------------------------------------- #
 	# NORMALISE_XML
@@ -250,11 +259,11 @@ class WcResolveUnit(AppResolveUnit):
       logger.info('run %s in subprocess ...' % sasPrgm)
       self.runProcess(sysArgs,stdin=dstream.text)
       break
+    self.purgeDataStream()
     self.state.hasNext = False
     self.state.complete = True
-    #self.purgeKeyData(purge=True)
-    self.state.next = 'GET_PMOV_DATA'
-    self.state.hasNext = True
+    #self.state.next = 'GET_PMOV_DATA'
+    #self.state.hasNext = True
     return self.state
 
 	# -------------------------------------------------------------- #
@@ -338,12 +347,11 @@ class WcScriptPrvdr(SasScriptPrvdr):
   # ---------------------------------------------------------------#
   def __call__(self):
     self.pmeta = self.getProgramMeta()
-    #dbKey = 'TSXREF|' + self.caller
-    #try:
-    #  tsXref = self._leveldb.Get(dbKey)
-    #except KeyError:
-    #  raise Exception('EEOWW! tsXref param not found : ' + dbKey)
-    tsXref = 180703074802
+    dbKey = 'TSXREF|' + self.caller
+    try:
+      tsXref = self._leveldb.Get(dbKey)
+    except KeyError:
+      raise Exception('EEOWW! tsXref param not found : ' + dbKey)
     self.compileScript('wcInputXml2Sas.sas')
     return (tsXref, self.pmeta)
 
