@@ -37,13 +37,16 @@ class DelDataUnit(object):
     self._leveldb = leveldb
 
   def __call__(self, startKey, endKey):
+    logger.info('!!! Delete All Keys : %s, %s !!!' % (startKey, endKey))
+    batch = leveldb.WriteBatch()
     keyIter = self._leveldb.RangeIter(startKey, endKey, include_value=False)
     while True:
       try:
         key = keyIter.next()
-        self._leveldb.Delete(key)
+        batch.Delete(key)
       except StopIteration:
         break
+    self._leveldb.Write(batch, sync=True)
 
 # -------------------------------------------------------------- #
 # DataStreamPrvdr
@@ -57,11 +60,13 @@ class DlmrStreamPrvdr(object):
 	# render a stream generator
 	# ---------------------------------------------------------------#
   def __call__(self, dlm, startKey, endKey):
-    logger.info('RENDER_STREAM : %s, %s' % (startKey, endKey))
+    logger.info('!!! Render Stream : %s, %s !!!' % (startKey, endKey))
     itemIter = self._leveldb.RangeIter(startKey, endKey)
+    isEmpty = True
+    hasNext = True
     def generate():
-      while True:
-        try:
+      try:
+        while hasNext:
           key, item = itemIter.next()
           try:
             row = dlm.join(json.loads(item))
@@ -69,7 +74,9 @@ class DlmrStreamPrvdr(object):
             logger.error('json loads failed : ' + str(ex))
             raise
           yield row + '\n'
-        except StopIteration:
-          break
+          isEmpty = False
+      except StopIteration:
+        hasNext = False
+    if isEmpty:
+      return Response('', status=417, mimetype='text/html')
     return Response(generate(), status=201, mimetype='text/html')
-
