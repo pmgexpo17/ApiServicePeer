@@ -147,15 +147,9 @@ class AppDirector(SysCmdUnit):
     pass
 
   # -------------------------------------------------------------- #
-  # onComplete
-  # ---------------------------------------------------------------#
-  @abstractmethod
-  def onComplete(self, *args, **kwargs):
-    pass
-
-  # -------------------------------------------------------------- #
   # onError
   # ---------------------------------------------------------------#
+  @abstractmethod  
   def onError(self, *args, **kwargs):
     pass
 
