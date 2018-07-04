@@ -91,11 +91,10 @@ class AppProvider(object):
 
     director = self._job[params.id]
     module, className = self.registry.getClassName(params.service)
-    _range = range(jobRange)
 
-    jobs = director.listener.register(_range)
+    jobs = director.listener.register(jobRange)
     params.args.append(0)
-    for jobNum in _range:
+    for jobNum in jobRange:
       jobId = jobs[jobNum]
       # must be an AppDelegate derivative, leveldb param is fixed by protocol
       self._job[jobId] = getattr(module, className)(self.db)
@@ -120,17 +119,17 @@ class AppProvider(object):
     module, className = self.registry.getClassName(params.service)
     # must be an AppDirector derivative, leveldb and jobId params are fixed by protocol
     if params.caller:
-      director = getattr(module, className)(self.db, jobId, params.caller)
+      delegate = getattr(module, className)(self.db, jobId, params.caller)
     else:
-      director = getattr(module, className)(self.db, jobId)
+      delegate = getattr(module, className)(self.db, jobId)
     if hasattr(params, 'listener'):
       # must be an AppListener derivative, leveldb param is fixed by protocol
       module, className = self.registry.getClassName(params.listener)    
       listener = getattr(module, className)(self.db, jobId)
-      listener.state = director.state
-      director.listener = listener
+      listener.state = delegate.state
+      delegate.listener = listener
       self.scheduler.add_listener(listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
-    self._job[jobId] = director
+    self._job[jobId] = delegate
     self.runActor(params,jobId)
     return jobId
 
@@ -152,20 +151,16 @@ class AppProvider(object):
         except KeyError:
           raise Exception('jobId not found in job register : ' + params.id)
         if params.type == 'delegate':
-          if params.responder == 'listener':
-            # a live director program has dispatched a bound delegate
-            return self.addActorGroup(params, jobRange)            
-          elif params.responder == 'self':
-            # a live director program has dispatched an unbound delegate
-            if not jobId:
-              jobId = params.id
-            return self.a(params,jobId)
+          # a live director is delegating an actor group
+          return self.addActorGroup(params, range(jobRange))            
         else:
           # a live director program is promoted, ie, state machine is promoted
           return self.runActor(params, params.id)
-      # a director program is submitted for scheduling
+      elif not jobId:
+        jobId = str(uuid.uuid4())
+      # a new program, either a sync director or async delegate
       return self.addActor(params,jobId)
-
+        
   # -------------------------------------------------------------- #
   # resolve
   # ---------------------------------------------------------------#
@@ -182,7 +177,6 @@ class AppProvider(object):
       except Exception as ex:
         logger.error('stream generation failed : ' + str(ex))
         raise
-      #self.evalComplete(actor, params.id)
 
   # -------------------------------------------------------------- #
   # evalComplete
@@ -200,7 +194,6 @@ class AppProvider(object):
       if actor.state.failed:
         logMsg = 'director[%s] has failed, removing it now ...'
       logger.info(logMsg, jobId)
-      actor.onComplete()
       if actor.appType == 'director':
         self.removeMeta(jobId)
       if hasattr(actor, 'listener'):
