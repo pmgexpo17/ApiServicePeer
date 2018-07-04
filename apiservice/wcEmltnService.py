@@ -88,7 +88,7 @@ class WcEmltnDirector(AppDirector):
     if self.state.transition == 'XML_TO_SAS':
       classRef = 'wcEmltnInputPrvdr:WcEmltnInputPrvdr'
       pdata = (classRef,self.jobId)
-      params = '{"type":"director","id":null,"responder":"self","service":"%s","args":[],"caller":"%s"}' % pdata
+      params = '{"type":"director","id":null,"service":"%s","args":[],"caller":"%s"}' % pdata
       data = [('job',params)]
       apiUrl = 'http://localhost:5000/api/v1/smart'
       response = requests.put(apiUrl,data=data)
@@ -97,7 +97,7 @@ class WcEmltnDirector(AppDirector):
       classRef = 'wcEmltnService:WcEmltnBySgmt'
       args = [self.pmeta['progLib'], self.txnNum]
       pdata = (self.jobId,classRef, json.dumps(args))
-      params = '{"type":"delegate","id":"%s","responder":"listener","service":"%s","args":%s}' % pdata
+      params = '{"type":"delegate","id":"%s","service":"%s","args":%s}' % pdata
       data = [('job',params)]
       apiUrl = 'http://localhost:5000/api/v1/async/%d' % self.sgmtCount
       response = requests.post(apiUrl,data=data)
