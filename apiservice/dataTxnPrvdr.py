@@ -33,19 +33,20 @@ logger = logging.getLogger('apscheduler')
 # ---------------------------------------------------------------#
 class DelDataUnit(object):
 
-  def __init__(self, leveldb):
+  def __init__(self, leveldb, *argv):
     self._leveldb = leveldb
 
   def __call__(self, startKey, endKey):
     logger.info('!!! Delete All Keys : %s, %s !!!' % (startKey, endKey))
     batch = leveldb.WriteBatch()
     keyIter = self._leveldb.RangeIter(startKey, endKey, include_value=False)
-    while True:
-      try:
+    hasNext = True
+    try:
+      while hasNext:
         key = keyIter.next()
         batch.Delete(key)
-      except StopIteration:
-        break
+    except StopIteration:
+      hasNext = False
     self._leveldb.Write(batch, sync=True)
 
 # -------------------------------------------------------------- #
@@ -55,28 +56,25 @@ class DlmrStreamPrvdr(object):
 
   def __init__(self, leveldb):
     self._leveldb = leveldb
-    
+
+	# -------------------------------------------------------------- #
+	# evalStream
+	# ---------------------------------------------------------------#
+  def evalStream(self, dlm, itemIter):
+    hasNext = True
+    try:
+      while hasNext:
+        key, item = itemIter.next()
+        row = dlm.join(json.loads(item))
+        yield row + '\n'
+    except StopIteration:
+      hasNext = False
+    yield '\n'
+
 	# -------------------------------------------------------------- #
 	# render a stream generator
 	# ---------------------------------------------------------------#
   def __call__(self, dlm, startKey, endKey):
     logger.info('!!! Render Stream : %s, %s !!!' % (startKey, endKey))
     itemIter = self._leveldb.RangeIter(startKey, endKey)
-    isEmpty = True
-    hasNext = True
-    def generate():
-      try:
-        while hasNext:
-          key, item = itemIter.next()
-          try:
-            row = dlm.join(json.loads(item))
-          except Exception as ex:
-            logger.error('json loads failed : ' + str(ex))
-            raise
-          yield row + '\n'
-          isEmpty = False
-      except StopIteration:
-        hasNext = False
-    if isEmpty:
-      return Response('', status=417, mimetype='text/html')
-    return Response(generate(), status=201, mimetype='text/html')
+    return Response(self.evalStream(dlm, itemIter), status=201, mimetype='text/html')
