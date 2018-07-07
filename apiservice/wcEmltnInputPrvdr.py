@@ -83,7 +83,7 @@ class WcEmltnInputPrvdr(AppDirector):
       pdata = (self.caller,classRef,json.dumps({'signal':signal}))
       params = '{"type":"director","id":"%s","service":"%s","kwargs":%s,"args":[]}' % pdata
       data = [('job',params)]
-      apiUrl = 'http://localhost:5000/api/v1/async/1'
+      apiUrl = 'http://localhost:5000/api/v1/smart'
       response = requests.post(apiUrl,data=data)
       logger.info('api response ' + response.text)
 
@@ -227,6 +227,26 @@ class WcResolveUnit(AppResolveUnit):
     return requests.post(apiUrl,data=data)
     
 	# -------------------------------------------------------------- #
+	# evalSasConsumer
+	# ---------------------------------------------------------------#
+  def evalSasConsumer(self, template, params, tableName):
+
+    params['tableName'] = tableName
+    logger.info('sas import params : ' + str(params))
+    sasDefn = self.sasDefn[tableName]
+    sasPrgm = '%s/%s.sas' % (self.pmeta['progLib'],tableName)
+    template.stream(params=params,sasDefn=sasDefn).dump(sasPrgm)
+    dstream = self.getDataStream(tableName)
+    if dstream.status_code != 201:
+      raise Exception('data stream api request failed[%d] : %s' % (dstream.status_code,dstream.text))
+    sasPrgm = tableName + '.sas'
+    logfile = 'log/%s.log' % tableName
+    sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
+    logger.info('run %s in subprocess ...' % sasPrgm)
+    cwd = self.pmeta['progLib']    
+    self.runProcess(sysArgs,stdin=dstream.text,cwd=cwd)
+    
+	# -------------------------------------------------------------- #
 	# NORMALISE_XML
 	# ---------------------------------------------------------------#
   def NORMALISE_XML(self):
@@ -246,24 +266,11 @@ class WcResolveUnit(AppResolveUnit):
     params = {'trnswrk': trnswrk, 'reclen': self.pmeta['reclen']}
     for tableName in sorted(self.sasDefn):
       logger.info('IMPORT_TO SAS : ' + tableName)
-      params['tableName'] = tableName
-      logger.info('sas import params : ' + str(params))
-      sasDefn = self.sasDefn[tableName]
-      sasPrgm = '%s/%s.sas' % (self.pmeta['progLib'],tableName)
-      template.stream(params=params,sasDefn=sasDefn).dump(sasPrgm)
-      logfile = '%s/log/%s.log' % (self.pmeta['progLib'],tableName)
-      sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
-      dstream = self.getDataStream(tableName)
-      if dstream.status_code != 201:
-        raise Exception('data stream api request failed[%d] : %s' % (dstream.status_code,dstream.text))
-      logger.info('run %s in subprocess ...' % sasPrgm)
-      self.runProcess(sysArgs,stdin=dstream.text)
-      break
-    self.purgeDataStream()
-    self.state.hasNext = False
-    self.state.complete = True
-    #self.state.next = 'GET_PMOV_DATA'
-    #self.state.hasNext = True
+      self.evalSasConsumer(template, params, tableName)
+    response = self.purgeDataStream()
+    logger.info('api response ' + response.text)
+    self.state.next = 'GET_PMOV_DATA'
+    self.state.hasNext = True
     return self.state
 
 	# -------------------------------------------------------------- #
@@ -276,10 +283,7 @@ class WcResolveUnit(AppResolveUnit):
     if self.pmeta["inputTxnFilter"] != 'LAST_INF_BY_PCID':
       return self.state
 
-    pmovDir = 'pmov'
-    if self.pmeta['ciwork'][-1] != '/':
-      pmovDir = '/pmov'
-    pmovLib = self.pmeta['ciwork'] + pmovDir
+    pmovLib = self.pmeta['ciwork'] + '/pmov'
     self.pmeta['pmovLib'] = pmovLib
 
     try:      
@@ -288,7 +292,7 @@ class WcResolveUnit(AppResolveUnit):
       raise Exception('pmov dataset id not valid : ' + self.pmeta['pmovDsId'])
 
     if not os.path.exists(pmovLib):
-      self.runProcess(['mkdir','-p',pmovLib])
+      self.sysCmd(['mkdir','-p',pmovLib])
     else:
       pmovDsName = 'pmov%s_combined.sas7bdat' % self.pmeta['pmovDsId']
       pmovDsPath = '%s/%s' % (pmovLib, pmovDsName)
@@ -298,7 +302,7 @@ class WcResolveUnit(AppResolveUnit):
         today = datetime.datetime.today()
         if lastPut.day == today.day and lastPut.month == today.month and lastPut.year == today.year:
           logger.info(pmovDsName + ' has been transfered already today')
-          logger.info('Note : wcEmltnService S3 transfer min period = daily')
+          logger.info('!! NOTE : wcEmltnService S3 transfer min period = daily !!')
           return self.state
 
     S3Dir = pmovDsId.strftime('%Y%m')
@@ -306,14 +310,14 @@ class WcResolveUnit(AppResolveUnit):
       S3Dir = '/' + S3Dir
     self.pmeta['S3Path'] += S3Dir
     incItems = ['macroLib','pmovLib','S3Path','pmovDsId']
-    self.compileSessionVars('getPmovFromS3.sas',incItems=incItems)
+    self.compileScript('getPmovFromS3.sas',incItems=incItems)
     
-    sasPrgm = '%s/getPmovFromS3.sas' % self.pmeta['progLib']
-    logfile = '%s/log/getPmovFromS3.log' % self.pmeta['progLib']
+    sasPrgm = 'getPmovFromS3.sas'
+    logfile = 'log/getPmovFromS3.log'
     sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
-        
     logger.info('run getPmovFromS3.sas in subprocess ...')
-    self.runProcess(sysArgs)
+    cwd = self.pmeta['progLib']
+    self.runProcess(sysArgs,cwd=cwd)
     return self.state
 
 	# -------------------------------------------------------------- #
@@ -321,14 +325,16 @@ class WcResolveUnit(AppResolveUnit):
 	# ---------------------------------------------------------------#
   def TRANSFORM_SAS(self):
 
-    sasPrgm = '%s/wcInputXml2Sas.sas' % self.pmeta['progLib']
-    logfile = '%s/log/wcInputXml2Sas.log' % self.pmeta['progLib']
+    sasPrgm = 'wcInputXml2Sas.sas'
+    logfile = 'log/wcInputXml2Sas.log'
+    cwd = self.pmeta['progLib']
     sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
 
     logger.info('run wcInputXml2Sas.sas in subprocess ...')
-    self.runProcess(sysArgs)
+    self.runProcess(sysArgs,cwd=cwd)
     self.state.hasNext = False
     self.state.complete = True
+    self.state.hasSignal = True
     return self.state
     
 # -------------------------------------------------------------- #
