@@ -37,12 +37,16 @@ class SysCmdUnit(object):
 
   # ------------------------------------------------------------ #
   # sysCmd
+  # - use for os commands so return code is handled correctly
   # -------------------------------------------------------------#
-  def sysCmd(self, sysArgs, stdout=None, cwd=None):
+  def sysCmd(self, sysArgs, stdin=None, stdout=None, cwd=None):
 
     try:
       scriptname = self.__class__.__name__
-      return subcall(sysArgs, stdout=stdout, cwd=cwd)
+      if stdout:
+        return subcall(sysArgs, stdin=stdin, stdout=stdout, stderr=stdout, cwd=cwd)  
+      else:
+        return subcall(sysArgs, stdin=stdin, cwd=cwd)
     except OSError as ex:
       errmsg = '%s syscmd failed : %s' % (scriptname, str(ex))
       raise Exception(errmsg)
