@@ -232,7 +232,7 @@ class ResolveUnit(AppResolveUnit):
 
   def close(self):
     self._leveldb.Write(self.batch, sync=True)
-    logger.info('xml row count : %d' % self.rowcount)
+    logger.info('!! Xml row count : %d !!' % self.rowcount)
 
 # -------------------------------------------------------------- #
 # XmlTablizer
@@ -323,6 +323,14 @@ class XmlTablizer(object):
       dbKey = '%s|%s|UKEY' % (self.tsXref, self.fkeyRef)
       return self.retrieve(dbKey,noValue=[])
     return []
+  
+  # -------------------------------------------------------------- #
+  # putRowSize
+  # ---------------------------------------------------------------#
+  def putRowSize(self):
+    
+    dbKey = '%s|%s|ROWSIZE' % (self.tsXref, self.tableName)
+    self._leveldb.Put(dbKey,'%d' % self.count)
 
 # -------------------------------------------------------------- #
 # MetaPrvdr
