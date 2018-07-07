@@ -144,7 +144,7 @@ class AppProvider(object):
         params.id
       except AttributeError:
         raise Exception("required param 'id' not found")
-      logger.info('job service, id : %s, %s' % (params.id, params.service))
+      logger.info('job service, id : %s, %s' % (params.service, params.id))
       if params.id:
         try:
           self._job[params.id]
