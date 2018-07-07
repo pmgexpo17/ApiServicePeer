@@ -110,7 +110,7 @@ class WcResolveUnit(AppResolveUnit):
   
   def __init__(self):
     self.__dict__['XML_TO_SAS'] = self.XML_TO_SAS
-    self.__dict__['TXN_REPEAT'] = self.TXN_REPEAT
+    self.__dict__['GET_TXN_COUNT'] = self.TXN_REPEAT
     self.__dict__['TXN_SGMT_REPEAT'] = self.TXN_SGMT_REPEAT
     self.__dict__['TXN_SGMT_RESTACK'] = self.TXN_SGMT_RESTACK
     self.pmeta = None
@@ -174,12 +174,13 @@ class WcResolveUnit(AppResolveUnit):
   # getTxnCount -
   # ---------------------------------------------------------------#
   def getTxnCount(self):
-    sasPrgm = '%s/batchTxnScheduleWC.sas' % self.pmeta['progLib']
-    logfile = '%s/log/batchTxnScheduleWC.log' % self.pmeta['progLib']
+    sasPrgm = 'batchTxnScheduleWC.sas'
+    logfile = 'log/batchTxnScheduleWC.log'
     sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
     
     logger.info('run batchTxnScheduleWC.sas in subprocess ...')
-    stdout = self.runProcess(sysArgs)
+    cwd = self.pmeta['progLib']
+    stdout = self.runProcess(sysArgs,cwd=cwd)
     logger.info('program output : %s' % stdout)
     
     txnPacket = json.loads(stdout)
@@ -187,18 +188,22 @@ class WcResolveUnit(AppResolveUnit):
     self.txnNum = 0
 
   # -------------------------------------------------------------- #
+  # GET_TXN_COUNT - evalTxnRepeat
+  # - state.next = 'TXN_REPEAT'
+  # ---------------------------------------------------------------#
+  def GET_TXN_COUNT(self):
+    self.getTxnCount()
+    self.state.next = 'TXN_REPEAT'
+    self.state.hasNext = True
+    return self.state
+
+  # -------------------------------------------------------------- #
   # TXN_REPEAT - evalTxnRepeat
   # - state.current = 'TXN_REPEAT'
   # - state.next = 'TXN_SGMT_REPEAT'
   # ---------------------------------------------------------------#
   def TXN_REPEAT(self):
-    if self.txnCount == 0:
-      self.state.next = 'TXN_REPEAT'
-      self.getTxnCount()
-      self.state.hasNext = True
-      return self.state
-    elif self.txnNum == self.txnCount:
-      self.state.next = 'COMPLETE'
+    if self.txnNum == self.txnCount:
       self.restackTxnOutputAll()
       self.state.complete = True
       self.state.hasNext = False
@@ -212,12 +217,13 @@ class WcResolveUnit(AppResolveUnit):
   # restackTxnOutputAll
   # ---------------------------------------------------------------#
   def restackTxnOutputAll(self):
-    sasPrgm = '%s/restackTxnOutputWC.sas' % self.pmeta['progLib']
-    logfile = '%s/log/restackTxnOutputWC.log' % self.pmeta['progLib']
+    sasPrgm = 'restackTxnOutputWC.sas'
+    logfile = 'log/restackTxnOutputWC.log'
     sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
 
     logger.info('run restackTxnOutputWC.sas in subprocess ...')
-    self.runProcess(sysArgs)
+    cwd = self.pmeta['progLib']
+    self.runProcess(sysArgs,cwd=cwd)
 
   # -------------------------------------------------------------- #
   # TXN_SGMT_REPEAT - evalTxnSgmtRepeat
@@ -236,12 +242,13 @@ class WcResolveUnit(AppResolveUnit):
   # getTxnSgmtCount
   # ---------------------------------------------------------------#
   def getTxnSgmtCount(self):
-    sasPrgm = '%s/batchScheduleWC.sas' % self.pmeta['progLib']
-    logfile = '%s/log/batchScheduleWC.log' % self.pmeta['progLib']
-    sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
+    sasPrgm = 'batchScheduleWC.sas'
+    logfile = 'log/batchScheduleWC.log'
+    sysArgs = ['sas','-sysin',sasPrgm,'-set','txnNum',self.txnNum,'-log',logfile,'-logparm','open=replace']
     
     logger.info('run batchScheduleWC.sas in subprocess, txn[%d] ...' % self.txnNum)
-    stdout = self.runProcess(sysArgs)
+    cwd = self.pmeta['progLib']
+    stdout = self.runProcess(sysArgs,cwd=cwd)
     logger.info('program output : %s' % stdout)
 
     sgmtPacket = json.loads(stdout)
@@ -262,12 +269,13 @@ class WcResolveUnit(AppResolveUnit):
   # restackSgmtOutput
   # ---------------------------------------------------------------#
   def restackSgmtOutputAll(self):
-    sasPrgm = '%s/restackSgmtOutputWC.sas' % self.pmeta['progLib']
-    logfile = '%s/log/restackSgmtOutputWC_txn%d.log' % (self.pmeta['progLib'], self.txnNum)
+    sasPrgm = 'restackSgmtOutputWC.sas'
+    logfile = 'log/restackSgmtOutputWC_txn%d.log'
     sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
     
     logger.info('run restackSgmtOutputWC.sas in subprocess txn[%d] ...' % self.txnNum)
-    self.runProcess(sysArgs)
+    cwd = self.pmeta['progLib']
+    self.runProcess(sysArgs,cwd=cwd)
 
   # -------------------------------------------------------------- #
   # putMetaItems
@@ -295,12 +303,12 @@ class WcEmltnBySgmt(SysCmdUnit):
   # runEmltnBySgmt
   # ---------------------------------------------------------------#
   def __call__(self, progLib, txnNum, sgmtNum):
-    sasPrgm = '%s/batchEmulatorWC_txn%d_s%d.sas' % (progLib, txnNum, sgmtNum)
-    logfile = '%s/log/batchEmulatorWC_txn%d_s%d.log' % (progLib, txnNum, sgmtNum)
+    sasPrgm = 'batchEmulatorWC_txn%d_s%d.sas' % (txnNum, sgmtNum)
+    logfile = 'log/batchEmulatorWC_txn%d_s%d.log' % (txnNum, sgmtNum)
     sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
 
-    logger.info('run batchEmulatorWC_txn%d_s%d.sas in subprocess ...' % (txnNum, sgmtNum))                                  
-    self.runProcess(sysArgs)
+    logger.info('run batchEmulatorWC_txn%d_s%d.sas in subprocess ...' % (txnNum, sgmtNum))
+    self.runProcess(sysArgs,cwd=progLib)
 
 # -------------------------------------------------------------- #
 # WcEmltnListener
@@ -354,7 +362,7 @@ class WcEmailUnit(AppResolveUnit):
     self.__dict__['TXN_REPEAT'] = self.TXN_REPEAT
     self.__dict__['TXN_SGMT_REPEAT'] = self.TXN_SGMT_REPEAT
     self.__dict__['TXN_SGMT_RESTACK'] = self.TXN_SGMT_RESTACK
-    self._from = 'CI workerscomp emulation team <Pricing-Implementation-CI-Fasttracks@suncorp.com.au>'
+    self._from = 'Pricing-Implementation-CI-Fasttracks@suncorp.com.au'
     self.pmeta = None
     self.state = None
 
@@ -477,7 +485,8 @@ class WcScriptPrvdr(SasScriptPrvdr, SysCmdUnit):
   def getProgramMeta(self):
 
     dbKey = 'TSXREF|' + self.jobId
-    tsXref = datetime.datetime.now().strftime('%y%m%d%H%M%S')
+    #tsXref = datetime.datetime.now().strftime('%y%m%d%H%M%S')
+    tsXref = '180707141758'
     self._leveldb.Put(dbKey, tsXref)
 
     dbKey = 'PMETA|' + self.jobId
