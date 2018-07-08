@@ -37,7 +37,7 @@ class DelDataUnit(object):
     self._leveldb = leveldb
 
   def __call__(self, startKey, endKey):
-    logger.info('!!! Delete All Keys : %s, %s !!!' % (startKey, endKey))
+    logger.info('!! Delete All Keys : %s, %s !!' % (startKey, endKey))
     batch = leveldb.WriteBatch()
     keyIter = self._leveldb.RangeIter(startKey, endKey, include_value=False)
     hasNext = True
@@ -75,6 +75,6 @@ class DlmrStreamPrvdr(object):
 	# render a stream generator
 	# ---------------------------------------------------------------#
   def __call__(self, dlm, startKey, endKey):
-    logger.info('!!! Render Stream : %s, %s !!!' % (startKey, endKey))
+    logger.info('!! Render Stream : %s, %s !!' % (startKey, endKey))
     itemIter = self._leveldb.RangeIter(startKey, endKey)
     return Response(self.evalStream(dlm, itemIter), status=201, mimetype='text/html')
