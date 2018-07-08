@@ -10,7 +10,6 @@ pmeta={
     "ciwork" : "/data/projectarea/wcEmltnService",
     "logLevel" : "ERROR",
     "macroLib" : "/data/BASESAS/saslib/ci/emulation/wrkcmp/dev1/sasautos",
-    "progLib" : "/data/projectarea/wcEmltnService/saslib",
     "stashHost" : "https://bitbucket.int.corp.sun/projects",
     "stashBase" : "PI/repos/ci/browse/emulation/AutoEmltnWC",
     "userEmail" : "peter.mcgill@suncorp.com.au",
@@ -19,7 +18,7 @@ pmeta={
   },
   "WcEmltnDirector" : {
     "codeLib" : "/data/BASESAS/saslib/ci/emulation/wrkcmp/dev1/calcorder",
-    "inputSrc" : "final_wc_201803",
+    "inputSrc" : "final_wc_201804",
     "program" : "MAIN:ALL:ADDTNL:ALL:EXTNSN:ALL:ADDTNL:ALL",
     "rateLib" : "/data/BASE/rateslib/ci/emulation/wrkcmp/dev1",
     "reRun" : "N",
@@ -28,6 +27,7 @@ pmeta={
   },
   "WcInputXml2Sas" : {
     "inputTxnFilter" : "ALL",
+    "inputXmlFile" : "WC_201804.txt",
     "pmovDsId" : "1804",
     "reclen" : 2000,
     "runMode" : 1,
