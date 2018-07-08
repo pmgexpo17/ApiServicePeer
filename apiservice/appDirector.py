@@ -128,7 +128,10 @@ class AppDirector(SysCmdUnit):
         logger.info('state transition resolved by signal : ' + str(signal))
       while state.hasNext: # complete?
         logger.info('resolving state : ' + state.current)
-        state = self.resolve[state.current]()
+        try:
+          state = self.resolve[state.current]()
+        except KeyError:
+          raise Exception('state machine does not include state : ' + state.current)
         if state.inTransition:
           logger.info('in transition to next state %s , so quicken ...' % state.next)
           self.quicken()
@@ -211,9 +214,9 @@ class AppResolveUnit(SysCmdUnit):
 class AppListener(object):
   __metaclass__ = ABCMeta
 
-  def __init__(self, leveldb, jobId):
+  def __init__(self, leveldb, caller):
     self._leveldb = leveldb
-    self.jobId = jobId
+    self.caller = caller
 
   # -------------------------------------------------------------- #
   # addJobs - add a list of live job ids
