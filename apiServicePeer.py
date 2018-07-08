@@ -50,7 +50,7 @@ parser.add_argument('pmeta')
 # promotes a smart, ie, stateful long running job
 class SmartJob(Resource):
 
-  def put(self):
+  def post(self):
     setPrvdr()
     args = parser.parse_args()
     if not args:
