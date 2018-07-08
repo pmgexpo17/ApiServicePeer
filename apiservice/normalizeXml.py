@@ -82,7 +82,7 @@ class NormalizeXml(AppDirector):
     params = '{"type":"director","id":"%s","service":"%s","args":[],"kwargs":%s}' % pdata
     data = [('job',params)]
     apiUrl = 'http://localhost:5000/api/v1/smart'
-    response = requests.put(apiUrl,data=data)
+    response = requests.post(apiUrl,data=data)
     logger.info('api response ' + response.text)
 
 # -------------------------------------------------------------- #
