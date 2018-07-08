@@ -76,7 +76,7 @@ class WcEmltnInputPrvdr(AppDirector):
       params = '{"type":"director","id":null,"service":"%s","args":[],"caller":%s}' % pdata
       data = [('job',params)]
       apiUrl = 'http://localhost:5000/api/v1/smart'
-      response = requests.put(apiUrl,data=data)
+      response = requests.post(apiUrl,data=data)
       logger.info('api response ' + response.text)
     elif self.state.complete:
       classRef = 'wcEmltnService:WcEmltnDirector'
@@ -109,8 +109,8 @@ class WcResolveUnit(AppResolveUnit):
     self.tsXref = tsXref
     self.pmeta = pmeta
     self.state.current = 'NORMALISE_XML'
-    trnswrk = self.pmeta['ciwork'] + '/ssnwork/trnswrk'
-    cnvtwrk = self.pmeta['ciwork'] + '/ssnwork/cnvtwrk'
+    trnswrk = self.pmeta['ciwork'] + '/trnswrk'
+    cnvtwrk = self.pmeta['ciwork'] + '/cnvtwrk'
     assets = self.pmeta['ciwork'] + '/assets'
     self.sysCmd(['mkdir','-p',trnswrk])
     self.sysCmd(['mkdir',cnvtwrk])
@@ -262,7 +262,7 @@ class WcResolveUnit(AppResolveUnit):
   def IMPORT_TO_SAS(self):
     env = Environment(loader=PackageLoader('apiservice', 'xmlToSas'),trim_blocks=True)
     template = env.get_template('streamToSas.sas')
-    trnswrk = self.pmeta['ciwork'] + '/ssnwork/trnswrk'
+    trnswrk = self.pmeta['ciwork'] + '/trnswrk'
     params = {'trnswrk': trnswrk, 'reclen': self.pmeta['reclen']}
     for tableName in sorted(self.sasDefn):
       logger.info('IMPORT_TO SAS : ' + tableName)
