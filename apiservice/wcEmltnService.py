@@ -43,8 +43,6 @@ class WcEmltnDirector(AppDirector):
         logger.info('state transition is resolved, advancing ...')
         self.state.transition = 'NA'
         self.state.inTransition = False
-        self.state.completed = True
-        self.state.hasNext = False
       else:
         raise Exception('WcEmltnInputPrvdr server process failed, rc : %d' % signal)
     elif self.state.transition == 'EMLTN_BYSGMT_NOWAIT':
@@ -58,12 +56,6 @@ class WcEmltnDirector(AppDirector):
     self.state.current = self.state.next
     return self.state
 
-  # -------------------------------------------------------------- #
-  # onComplete
-  # ---------------------------------------------------------------#
-  def onComplete(self):
-    pass
-    
   # -------------------------------------------------------------- #
   # onError
   # ---------------------------------------------------------------#
@@ -91,15 +83,14 @@ class WcEmltnDirector(AppDirector):
       params = '{"type":"director","id":null,"service":"%s","args":[],"caller":"%s"}' % pdata
       data = [('job',params)]
       apiUrl = 'http://localhost:5000/api/v1/smart'
-      response = requests.put(apiUrl,data=data)
+      response = requests.post(apiUrl,data=data)
       logger.info('api response ' + response.text)
     elif self.state.transition == 'EMLTN_BYSGMT_NOWAIT':      
       classRef = 'wcEmltnService:WcEmltnBySgmt'
-      args = [self.pmeta['progLib'], self.txnNum]
-      pdata = (self.jobId,classRef, json.dumps(args))
-      params = '{"type":"delegate","id":"%s","service":"%s","args":%s}' % pdata
+      pdata = (self.jobId,classRef, self.resolve.txnNum)
+      params = '{"type":"delegate","id":"%s","service":"%s","args":[%d]}' % pdata
       data = [('job',params)]
-      apiUrl = 'http://localhost:5000/api/v1/async/%d' % self.sgmtCount
+      apiUrl = 'http://localhost:5000/api/v1/async/%d' % self.resolve.sgmtCount
       response = requests.post(apiUrl,data=data)
       logger.info('api response ' + response.text)
 
@@ -110,12 +101,14 @@ class WcResolveUnit(AppResolveUnit):
   
   def __init__(self):
     self.__dict__['XML_TO_SAS'] = self.XML_TO_SAS
-    self.__dict__['GET_TXN_COUNT'] = self.TXN_REPEAT
+    self.__dict__['GET_TXN_COUNT'] = self.GET_TXN_COUNT
+    self.__dict__['TXN_REPEAT'] = self.TXN_REPEAT
     self.__dict__['TXN_SGMT_REPEAT'] = self.TXN_SGMT_REPEAT
     self.__dict__['TXN_SGMT_RESTACK'] = self.TXN_SGMT_RESTACK
+    self.__dict__['TXN_RESTACK'] = self.TXN_RESTACK
     self.pmeta = None
     self.sgmtCount = 0
-    self.txnNum = 0    
+    self.txnNum = 0  
     self.txnCount = 0
 
   # -------------------------------------------------------------- #
@@ -126,7 +119,7 @@ class WcResolveUnit(AppResolveUnit):
   def XML_TO_SAS(self):
     self.state.transition = 'XML_TO_SAS'
     self.state.inTransition = True
-    self.state.next = 'TXN_REPEAT'
+    self.state.next = 'GET_TXN_COUNT'
     self.state.hasNext = True
     return self.state
 
@@ -188,7 +181,7 @@ class WcResolveUnit(AppResolveUnit):
     self.txnNum = 0
 
   # -------------------------------------------------------------- #
-  # GET_TXN_COUNT - evalTxnRepeat
+  # GET_TXN_COUNT
   # - state.next = 'TXN_REPEAT'
   # ---------------------------------------------------------------#
   def GET_TXN_COUNT(self):
@@ -204,13 +197,22 @@ class WcResolveUnit(AppResolveUnit):
   # ---------------------------------------------------------------#
   def TXN_REPEAT(self):
     if self.txnNum == self.txnCount:
-      self.restackTxnOutputAll()
-      self.state.complete = True
-      self.state.hasNext = False
+      self.state.next = 'TXN_RESTACK'
+      self.state.hasNext = True
     else:
       self.txnNum += 1
       self.state.next = 'TXN_SGMT_REPEAT'
       self.state.hasNext = True
+    return self.state
+
+  # -------------------------------------------------------------- #
+  # TXN_RESTACK
+  # - state.next = 'EOP'
+  # ---------------------------------------------------------------#
+  def TXN_RESTACK(self):
+    self.restackTxnOutputAll()
+    self.state.hasNext = False
+    self.state.complete = True
     return self.state
 
   # -------------------------------------------------------------- #
@@ -219,7 +221,8 @@ class WcResolveUnit(AppResolveUnit):
   def restackTxnOutputAll(self):
     sasPrgm = 'restackTxnOutputWC.sas'
     logfile = 'log/restackTxnOutputWC.log'
-    sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
+    txnCount = str(self.txnCount)
+    sysArgs = ['sas','-sysin',sasPrgm,'-set','txnCount',txnCount,'-log',logfile,'-logparm','open=replace']
 
     logger.info('run restackTxnOutputWC.sas in subprocess ...')
     cwd = self.pmeta['progLib']
@@ -233,7 +236,7 @@ class WcResolveUnit(AppResolveUnit):
   def TXN_SGMT_REPEAT(self):
     self.state.transition = 'EMLTN_BYSGMT_NOWAIT'
     self.state.inTransition = True
-    self.state.next = 'TXN_SGMT_RESTACK'      
+    self.state.next = 'TXN_SGMT_RESTACK'
     self.state.hasNext = True
     self.getTxnSgmtCount()
     return self.state
@@ -244,7 +247,8 @@ class WcResolveUnit(AppResolveUnit):
   def getTxnSgmtCount(self):
     sasPrgm = 'batchScheduleWC.sas'
     logfile = 'log/batchScheduleWC.log'
-    sysArgs = ['sas','-sysin',sasPrgm,'-set','txnNum',self.txnNum,'-log',logfile,'-logparm','open=replace']
+    txnIndex = str(self.txnNum)
+    sysArgs = ['sas','-sysin',sasPrgm,'-set','txnIndex',txnIndex,'-log',logfile,'-logparm','open=replace']
     
     logger.info('run batchScheduleWC.sas in subprocess, txn[%d] ...' % self.txnNum)
     cwd = self.pmeta['progLib']
@@ -270,39 +274,34 @@ class WcResolveUnit(AppResolveUnit):
   # ---------------------------------------------------------------#
   def restackSgmtOutputAll(self):
     sasPrgm = 'restackSgmtOutputWC.sas'
-    logfile = 'log/restackSgmtOutputWC_txn%d.log'
-    sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
+    logfile = 'log/restackSgmtOutputWC_txn%d.log' % self.txnNum
+    txnIndex = str(self.txnNum)
+    sgmtCount = str(self.sgmtCount)
+    sysArgs = ['sas','-sysin',sasPrgm,'-set','txnIndex',txnIndex,'-set','sgmtCount',sgmtCount]
+    sysArgs += ['-log',logfile,'-logparm','open=replace']
     
     logger.info('run restackSgmtOutputWC.sas in subprocess txn[%d] ...' % self.txnNum)
     cwd = self.pmeta['progLib']
     self.runProcess(sysArgs,cwd=cwd)
-
-  # -------------------------------------------------------------- #
-  # putMetaItems
-  # ---------------------------------------------------------------#                                          
-  def putMetaItems(self, puttext, fhw, incItems):
-    for itemKey, metaItem in self.pmeta.items():
-      if not incItems or itemKey in incItems:
-        fhw.write(puttext.format(itemKey, metaItem))
-
-    if self.txnNum > 0:
-      fhw.write(puttext.format('txnIndex', self.txnNum))
-      fhw.write(puttext.format('txnCount', self.txnCount))
-    if self.sgmtCount > 0:
-      fhw.write(puttext.format('sgmtCount', self.sgmtCount))
 
 # -------------------------------------------------------------- #
 # WcEmltnBySgmt
 # ---------------------------------------------------------------#
 class WcEmltnBySgmt(SysCmdUnit):
 
-  def __init__(self, leveldb):
+  def __init__(self, leveldb, caller):
     self._leveldb = leveldb
+    self.caller = caller
     
   # -------------------------------------------------------------- #
   # runEmltnBySgmt
   # ---------------------------------------------------------------#
-  def __call__(self, progLib, txnNum, sgmtNum):
+  def __call__(self, txnNum, sgmtNum):
+    dbKey = 'PMETA|PROGLIB|' + self.caller
+    try:
+      progLib = self._leveldb.Get(dbKey)
+    except KeyError:
+      raise Exception('EEOWW! pmeta proglib param not found : ' + dbKey)
     sasPrgm = 'batchEmulatorWC_txn%d_s%d.sas' % (txnNum, sgmtNum)
     logfile = 'log/batchEmulatorWC_txn%d_s%d.log' % (txnNum, sgmtNum)
     sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
@@ -315,8 +314,8 @@ class WcEmltnBySgmt(SysCmdUnit):
 # ---------------------------------------------------------------#
 class WcEmltnListener(AppListener):
 
-  def __init__(self, leveldb, jobId):
-    super(WcEmltnListener, self).__init__(leveldb, jobId)
+  def __init__(self, leveldb, caller):
+    super(WcEmltnListener, self).__init__(leveldb, caller)
     self.state = None
     self.jobIdList = []
 
@@ -337,7 +336,7 @@ class WcEmltnListener(AppListener):
 
     self.jobIdList = jobIds = []
     for jobNum in jobRange:
-      jobIds += str(uuid.uuid4())
+      jobIds += [str(uuid.uuid4())]
     return jobIds
 
   # -------------------------------------------------------------- #
@@ -345,7 +344,7 @@ class WcEmltnListener(AppListener):
   # ---------------------------------------------------------------#
   def putApiRequest(self, signal):
     classRef = 'wcEmltnService:WcEmltnDirector'
-    pdata = (self.jobId,classRef, json.dumps({'signal':signal}))
+    pdata = (self.caller,classRef, json.dumps({'signal':signal}))
     params = '{"type":"director","id":"%s","service":"%s","kwargs":%s,"args":[]}' % pdata
     data = [('job',params)]
     apiUrl = 'http://localhost:5000/api/v1/smart'
@@ -476,6 +475,8 @@ class WcScriptPrvdr(SasScriptPrvdr, SysCmdUnit):
     self.compileScript('restackSgmtOutputWC.sas',incItems=incItems)
     incItems = ['ciwork','macroLib','progLib','userEmail']
     self.compileScript('restackTxnOutputWC.sas',incItems=incItems)
+    cwd = self.pmeta['assetLib']
+    self.sysCmd(['cp','batchEmulatorWC.inc',self.pmeta['progLib']],cwd=cwd)
     self.putCredentials()
     return self.pmeta
 
@@ -485,8 +486,7 @@ class WcScriptPrvdr(SasScriptPrvdr, SysCmdUnit):
   def getProgramMeta(self):
 
     dbKey = 'TSXREF|' + self.jobId
-    #tsXref = datetime.datetime.now().strftime('%y%m%d%H%M%S')
-    tsXref = '180707141758'
+    tsXref = datetime.datetime.now().strftime('%y%m%d%H%M%S')
     self._leveldb.Put(dbKey, tsXref)
 
     dbKey = 'PMETA|' + self.jobId
@@ -504,10 +504,14 @@ class WcScriptPrvdr(SasScriptPrvdr, SysCmdUnit):
     logdir = ciwork + '/saslib/log'
     self.sysCmd(['mkdir',proglib])
     self.sysCmd(['mkdir',logdir])
+    ciwork += '/ssnwork'
+    self.sysCmd(['mkdir',ciwork])
     pmetaAll['Global']['ciwork'] = ciwork
     pmetaAll['Global']['progLib'] = proglib
     # write the pmeta session dict back for delegates to use
     self._leveldb.Put(dbKey, json.dumps(pmetaAll))
+    dbKey = 'PMETA|PROGLIB|' + self.jobId
+    self._leveldb.Put(dbKey, proglib)
     
     pmeta = pmetaAll['WcEmltnDirector']
     _globals = pmeta['globals'] # append global vars in this list
