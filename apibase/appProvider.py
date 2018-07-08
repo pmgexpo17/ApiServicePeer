@@ -96,8 +96,8 @@ class AppProvider(object):
     params.args.append(0)
     for jobNum in jobRange:
       jobId = jobs[jobNum]
-      # must be an AppDelegate derivative, leveldb param is fixed by protocol
-      self._job[jobId] = getattr(module, className)(self.db)
+      # leveldb, jobId constructor params are fixed by protocol
+      self._job[jobId] = getattr(module, className)(self.db, params.id)
       params.args[-1] = jobNum + 1
       self.runActor(params,jobId)
     return jobs
