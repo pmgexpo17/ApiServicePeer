@@ -152,7 +152,12 @@ class AppProvider(object):
           raise Exception('jobId not found in job register : ' + params.id)
         if params.type == 'delegate':
           # a live director is delegating an actor group
-          return self.addActorGroup(params, range(jobRange))            
+          if '-' in jobRange:
+            a,b = list(map(int,jobRange.split('-')))
+            _range = range(a,b)
+          else:
+            _range = range(int(jobRange))
+          return self.addActorGroup(params, _range)            
         else:
           # a live director program is promoted, ie, state machine is promoted
           return self.runActor(params, params.id)
