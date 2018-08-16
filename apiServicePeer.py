@@ -56,8 +56,8 @@ class SmartJob(Resource):
     if not args:
       return {'status':500,'error':'empty form args'}, 500
     try:
-      jobId = str(uuid.uuid4())      
       if args['pmeta']:
+        jobId = str(uuid.uuid4())      
         dbKey = 'PMETA|' + jobId
         g.prvdr.db.Put(dbKey, args['pmeta'])
         params = json.loads(args['job'])
@@ -69,7 +69,7 @@ class SmartJob(Resource):
       if args['job']:
         params = json.loads(args['job'])
         logger.info('job args : ' + str(params))
-        jobId = g.prvdr.promote(params,jobId=jobId)
+        jobId = g.prvdr.promote(params)
         return {'status':201,'job_id':jobId}, 201
       return {'status':500,'error':"form parameter 'job' not found"}, 500
     except Exception as ex:
