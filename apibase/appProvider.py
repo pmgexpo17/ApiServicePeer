@@ -156,7 +156,8 @@ class AppProvider(object):
             a,b = list(map(int,jobRange.split('-')))
             _range = range(a,b)
           else:
-            _range = range(int(jobRange))
+            b = int(jobRange) + 1
+            _range = range(1,b)
           return self.addActorGroup(params, _range)            
         else:
           # a live director program is promoted, ie, state machine is promoted
