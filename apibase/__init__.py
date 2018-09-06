@@ -21,15 +21,14 @@
 # THE SOFTWARE.
 #
 from appProvider import AppProvider
-import logging
+from apiPeer import ApiPeer
 
-config = {'dbPath':'/apps/webapi/wcemltn/leveldb',
-          'registry':'/apps/home/u352425/wcauto1/temp/apiservices.json'}
-appPrvdr = AppProvider.connect(config)
-
+# -------------------------------------------------------------- #
+# dispatch
+# ---------------------------------------------------------------#
 def dispatch(jobId, *argv, **kwargs):
-  logger = logging.getLogger('apscheduler')
-  
+
+  appPrvdr = AppProvider._singleton
   try:
     delegate = appPrvdr._job[jobId]
   except KeyError:
@@ -37,6 +36,4 @@ def dispatch(jobId, *argv, **kwargs):
     return
   
   delegate(*argv, **kwargs)
-  with appPrvdr._lock:
-    appPrvdr.evalComplete(delegate, jobId)
-  
+  appPrvdr.evalComplete(delegate, jobId)
