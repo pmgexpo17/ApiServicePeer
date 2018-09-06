@@ -94,11 +94,11 @@ class AppDirector(SysCmdUnit):
   # ------------------------------------------------------------ #
   # generic actor method
   # -------------------------------------------------------------#
-  def __call__(self, *argv, **kwargs):
+  def __call__(self, *args, **kwargs):
     with self.state.lock:
       if self.state.status == 'STOPPED':
         try:
-          self._start()
+          self._start(*args, **kwargs)
           self.state.status = 'STARTED'
         except Exception as ex:
           self.state.complete = True
@@ -106,11 +106,11 @@ class AppDirector(SysCmdUnit):
           logger.error('_start failed : ' + str(ex))
           return
       try:
-        self.runApp(*argv, **kwargs)
+        self.runApp(*args, **kwargs)
       except Exception as ex:
         self.state.complete = True
         self.state.failed = True        
-        logger.error('runApp failed : ' + str(ex))
+        self.onError(ex)
 
   # -------------------------------------------------------------- #
   # runApp
@@ -128,10 +128,7 @@ class AppDirector(SysCmdUnit):
         logger.info('state transition resolved by signal : ' + str(signal))
       while state.hasNext: # complete?
         logger.info('resolving state : ' + state.current)
-        try:
-          state = self.resolve[state.current]()
-        except KeyError:
-          raise Exception('state machine does not include state : ' + state.current)
+        state = self.resolve[state.current]()
         if state.inTransition:
           logger.info('in transition to next state %s , so quicken ...' % state.next)
           self.quicken()
@@ -140,11 +137,16 @@ class AppDirector(SysCmdUnit):
       if self.state.hasSignal:
         self.quicken()
     except Exception as ex:
-      #self.mailer[state.current]('ERROR')
-      self.onError(str(ex))
       self.state.complete = True
       self.state.failed = True
-      logger.error('director failed : ' + str(ex))
+      self.onError(ex)
+
+  # -------------------------------------------------------------- #
+  # _start
+  # -------------------------------------------------------------- #
+  @abstractmethod
+  def _start(self, *args, **kwargs):
+    pass
 
   # -------------------------------------------------------------- #
   # advance
@@ -186,9 +188,9 @@ class AppState(object):
     self.transition = 'NA'
     
 # -------------------------------------------------------------- #
-# AppResolveUnit
+# AppResolvar
 # ---------------------------------------------------------------#
-class AppResolveUnit(SysCmdUnit):
+class AppResolvar(SysCmdUnit):
 
   def __getitem__(self, key):
       return self.__dict__[key]
@@ -260,7 +262,7 @@ class SasScriptPrvdr(MetaReader):
   # -------------------------------------------------------------- #
   # compileScript
   # ---------------------------------------------------------------#
-  def compileScript(self, sasfile, incItems=None):
+  def compileScript(self, sasfile, incItems=None, excItems=None):
     logger.debug('progLib : ' + self.pmeta['progLib'])
     tmpltName = '%s/%s' % (self.pmeta['assetLib'], sasfile)
     sasFile = '%s/%s' % (self.pmeta['progLib'], sasfile)
@@ -269,7 +271,7 @@ class SasScriptPrvdr(MetaReader):
     with open(sasFile,'w') as fhw :
       for line in fhr:
         if re.search(r'<insert>', line):
-          self.putMetaItems(_puttext, fhw, incItems)
+          self.putMetaItems(_puttext, fhw, incItems, excItems)
         else:
           fhw.write(line)
     fhr.close()
@@ -277,7 +279,13 @@ class SasScriptPrvdr(MetaReader):
   # -------------------------------------------------------------- #
   # putMetaItems
   # ---------------------------------------------------------------#                                          
-  def putMetaItems(self, puttext, fhw, incItems):
+  def putMetaItems(self, puttext, fhw, incItems, excItems):
     for itemKey, metaItem in self.pmeta.items():
-      if not incItems or itemKey in incItems:
+      if excItems:
+        if not itemKey in excItems:
+          fhw.write(puttext.format(itemKey, metaItem))
+      elif incItems:
+        if itemKey in incItems:
+          fhw.write(puttext.format(itemKey, metaItem))
+      else:
         fhw.write(puttext.format(itemKey, metaItem))
