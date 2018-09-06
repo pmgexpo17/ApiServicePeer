@@ -30,7 +30,6 @@ import leveldb
 import os
 import uuid
 
-logger = logging.getLogger('apscheduler')
 # ---------------------------------------------------------------------------#
 # AppProvider
 #
@@ -42,45 +41,39 @@ logger = logging.getLogger('apscheduler')
 # create more actors, send more messages, and determine how to respond to the 
 # next message received. Actors may modify their own private state, but can only 
 # affect each other through messages (avoiding the need for any locks).
-# ---------------------------------------------------------------------------#
+# ---------------------------------------------------------------------------#    
 class AppProvider(object):
   _singleton = None
   _lock = RLock()
   
   @staticmethod
-  def connect(config):
+  def connect(dbPath):
     with AppProvider._lock:
       if AppProvider._singleton is not None:
         return AppProvider._singleton
-      return AppProvider.start(config)
+      return AppProvider.start(dbPath)
   
   @staticmethod
-  def start(config):
-    print('XXXXXXXXXXXX AppProvider is starting XXXXXXXXXXXXXX')
-    logger.info('AppProvider is starting ...')
-    try:
-      if not os.path.isdir(config['dbPath']):      
-        raise Exception("config['dbPath'] is not a directory : " + config['dbPath'])
-      if not os.path.exists(config['registry']):
-        raise Exception("config['registry'] does not exist : " + config['registry'])
-    except KeyError:
-      raise Exception('AppProvider config is not valid')
+  def start(dbPath):
+    global logger
+    logger = logging.getLogger('apscheduler')
+    
+    logger.info('### AppProvider is starting ... ###')
+    if not os.path.isdir(dbPath):
+      raise Exception("dbPath is not a directory : " + dbPath)
     appPrvdr = AppProvider()
-    _leveldb = leveldb.LevelDB(config['dbPath'])
+    _leveldb = leveldb.LevelDB(dbPath)
     appPrvdr.db = _leveldb
     jobstore = LeveldbJobStore(_leveldb)
     jobstores = { 'default': jobstore } 
     scheduler = BackgroundScheduler(jobstores=jobstores)
     scheduler.start()
     appPrvdr.scheduler = scheduler
-    registry = ServiceRegister()
-    #registry.load('/apps/home/u352425/wcauto1/temp/apiservices.json')
-    registry.load(config['registry'])
-    appPrvdr.registry = registry
+    appPrvdr.registry = ServiceRegister()
     appPrvdr._job = {}
     AppProvider._singleton = appPrvdr
     return AppProvider._singleton
-
+    
   def __init__(self):
     self.lock = RLock()
     
@@ -95,11 +88,13 @@ class AppProvider(object):
     jobs = director.listener.register(jobRange)
     params.args.append(0)
     for jobNum in jobRange:
-      jobId = jobs[jobNum]
+      jobId = jobs.pop(0)
       # leveldb, jobId constructor params are fixed by protocol
       self._job[jobId] = getattr(module, className)(self.db, params.id)
-      params.args[-1] = jobNum + 1
+      params.args[-1] = jobNum
       self.runActor(params,jobId)
+      # append the job to remake the original list
+      jobs.append(jobId)
     return jobs
 
   # -------------------------------------------------------------- #
@@ -107,6 +102,7 @@ class AppProvider(object):
   # ---------------------------------------------------------------#
   def runActor(self, params, jobId):
 
+    logger.info('appProvider.runActor job args : ' + str(params.args))
     args = [jobId] + params.args
     self.scheduler.add_job('apibase:dispatch',id=jobId,args=args,kwargs=params.kwargs,misfire_grace_time=3600)
     return jobId
@@ -158,7 +154,7 @@ class AppProvider(object):
           else:
             b = int(jobRange) + 1
             _range = range(1,b)
-          return self.addActorGroup(params, _range)            
+          return self.addActorGroup(params, _range)
         else:
           # a live director program is promoted, ie, state machine is promoted
           return self.runActor(params, params.id)
@@ -187,24 +183,25 @@ class AppProvider(object):
   # -------------------------------------------------------------- #
   # evalComplete
   # ---------------------------------------------------------------#
-  def evalComplete(self, actor, jobId):
-    try:
-      actor.state
-    except AttributeError:
-      # only stateful jobs are retained
-      del(self._job[jobId])
-    else:
-      if not actor.state.complete:
-        return
-      logMsg = 'director[%s] is complete, removing it now ...'
-      if actor.state.failed:
-        logMsg = 'director[%s] has failed, removing it now ...'
-      logger.info(logMsg, jobId)
-      if actor.appType == 'director':
-        self.removeMeta(jobId)
-      if hasattr(actor, 'listener'):
-        self.scheduler.remove_listener(actor.listener)
-      del(self._job[jobId])
+  def evalComplete(self, actor, jobId):    
+    with self.lock:
+      try:
+        actor.state
+      except AttributeError:
+        # only stateful jobs are retained
+        del(self._job[jobId])
+      else:
+        if not actor.state.complete:
+          return
+        logMsg = 'director[%s] is complete, removing it now ...'
+        if actor.state.failed:
+          logMsg = 'director[%s] has failed, removing it now ...'
+        logger.info(logMsg, jobId)
+        if actor._type == 'director':
+          self.removeMeta(jobId)
+        if hasattr(actor, 'listener'):
+          self.scheduler.remove_listener(actor.listener)
+        del(self._job[jobId])
 
   # -------------------------------------------------------------- #
   # removeMeta
@@ -214,29 +211,31 @@ class AppProvider(object):
     dbKey = 'PMETA|' + jobId
     self.db.Delete(dbKey)
 
+  # -------------------------------------------------------------- #
+  # register
+  # ---------------------------------------------------------------#
+  def register(self, serviceRef):
+    self.registry.load(serviceRef)
+
 # -------------------------------------------------------------- #
 # ServiceRegister
 # ---------------------------------------------------------------#
 class ServiceRegister(object):
 
   def __init__(self):
-    self._modules = None
+    self._modules = {}
 
-  def load(self, apiServicesMeta):
-    with open(apiServicesMeta,'r') as metaFile:
-      serviceMeta = json.load(metaFile)
-      self._modules = {}
-      for module in serviceMeta['services']:
-        self.loadModule(module['name'], module['fromList'])
+  def load(self, serviceRef):
+    for module in serviceRef:
+      self.loadModule(module['name'], module['fromList'])
 
   def loadModule(self, moduleName, fromList):
     try:
       self._modules[moduleName]
     except KeyError:
-      fullModuleName = moduleName
-      if moduleName.split('.')[0] != 'apiservice':
-        fullModuleName = 'apiservice.' + moduleName
-      self._modules[moduleName] = __import__(fullModuleName, fromlist=[fromList])
+      _module = moduleName.split('.')[-1]
+      logger.info('%s is loaded as : %s' % (moduleName, _module))
+      self._modules[_module] = __import__(moduleName, fromlist=[fromList])
 
   def getClassName(self, classRef):
 
@@ -255,7 +254,7 @@ class ServiceRegister(object):
     return (module, className)
 
 # -------------------------------------------------------------- #
-# ServiceRegister
+# Params
 # ---------------------------------------------------------------#
 class Params(object):
   def __init__(self, params):
@@ -269,3 +268,25 @@ class Params(object):
       self.__dict__.update(params)
     except:
       raise Exception('params is not a dict')     
+
+# -------------------------------------------------------------- #
+# Despatch
+# ---------------------------------------------------------------#
+class Despatch(object):
+  
+  def __init__(self, appPrvdr):
+    self.appPrvdr = appPrvdr
+    
+  def __call__(self, jobId, *args, **kwargs):
+
+    appPrvdr = AppProvider._singleton
+    
+    try:
+      delegate = self.appPrvdr._job[jobId]
+    except KeyError:
+      logger.error('jobId not found in job register : ' + jobId)
+      return
+  
+    delegate(*argv, **kwargs)
+    self.appPrvdr.evalComplete(delegate, jobId)
+    
