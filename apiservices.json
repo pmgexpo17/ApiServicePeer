@@ -1,0 +1,22 @@
+{
+  "domain": {
+    "csvchecker": "localhost:5000"
+  },
+  "smartJob": {
+    "csvchecker" : "{\"service\":\"ccService:CcDirector\",\"type\":\"director\",\"id\":null}"
+  },
+  "csvchecker": [
+    {"name":"apiservice.ccService",
+		 "fromList":[
+      "CcDirector"
+     ]
+	  },
+	  {"name":"apiservice.csvChecker",
+		  "fromList":[
+		    "CsvChecker",
+        "ApplyOracleBySgmt",
+        "CcListener"
+		  ]
+	  }
+  ]
+}
