@@ -182,7 +182,7 @@ class CcResolvar(AppResolvar):
     sasPrgm = 'evalCsvSgmtCount.sas'
     logfile = 'log/%s/evalCsvSgmtCount.log' % self.tblKey
     sysArgs = ['sas','-sysin',sasPrgm,'-set','tname',self.tblKey]
-    sysArgs += ['-log',logfile]
+    sysArgs += ['-altlog',logfile]
 
     logger.info('run importAppCsv.sas in subprocess ...')
     cwd = self.pmeta['progLib']
@@ -234,7 +234,7 @@ class CcResolvar(AppResolvar):
     sasPrgm = 'makeOracleBySgmt.sas'
     logfile = 'log/%s/makeOracleBySgmt.log' % self.tblKey
     sysArgs = ['sas','-sysin',sasPrgm,'-set','tname',self.tblKey,'-set','sgmtCount',str(self.sgmtCount)]
-    sysArgs += ['-log',logfile]
+    sysArgs += ['-altlog',logfile]
     logger.info('run makeOracleBySgmt.sas in subprocess ...')
     cwd = self.pmeta['progLib']
     self.runProcess(sysArgs,cwd=cwd)
@@ -261,7 +261,7 @@ class CcResolvar(AppResolvar):
     sasPrgm = 'csvChecker.sas'
     logfile = 'log/%s/csvChecker.log' % self.tblKey
     sysArgs = ['sas','-sysin',sasPrgm,'-set','tname',self.tblKey]
-    sysArgs += ['-log',logfile]
+    sysArgs += ['-altlog',logfile]
     logger.info('run evalCsvChecker.sas in subprocess ...')
     cwd = self.pmeta['progLib']
     self.runProcess(sysArgs,cwd=cwd)
@@ -290,7 +290,7 @@ class ApplyOracleBySgmt(SysCmdUnit):
       sasPrgm = 'applyOracleBySgmt.sas'
       logfile = 'log/%s/applyOracleBySgmt_%d.log' % (tblKey, sgmtNum)
       sysArgs = ['sas','-sysin',sasPrgm,'-set','tname',tblKey,'-set','sgmtNum',str(sgmtNum)]
-      sysArgs += ['-log',logfile]
+      sysArgs += ['-altlog',logfile]
       logger.info('run ApplyOracleBySgmt.sas for sgmtNum %d in subprocess ...' % sgmtNum)
       self.runProcess(sysArgs,cwd=progLib)
     except Exception:
