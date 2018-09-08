@@ -276,7 +276,7 @@ class CcResolvar(AppResolvar):
     self.method = 'ccService.CcResolvar.evalCcReport'
     sasPrgm = 'evalCheckReport.sas'
     logfile = 'log/evalCheckReport.log'
-    sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile]    
+    sysArgs = ['sas','-sysin',sasPrgm,'-altlog',logfile]
     logger.info('run evalCheckReport.sas in subprocess ...')
     cwd = self.pmeta['progLib']
     self.runProcess(sysArgs,cwd=cwd)
@@ -394,3 +394,4 @@ class CcScriptPrvdr(SasScriptPrvdr, SysCmdUnit):
     credentials = username + ':' + password
     self._leveldb.Put(dbKey,credentials)
     self.uid = username
+    
