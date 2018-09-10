@@ -25,6 +25,7 @@ import logging
 import virtualenv
 import pip
 import os, sys
+from optparse import OptionParser
 
 # -------------------------------------------------------------- #
 # getCredentials -
@@ -50,15 +51,84 @@ def getCredentials():
 # ---------------------------------------------------------------#
 class ApiInstaller(object):
   
-  def __init__(self, apiBase, stashBase):
-    self.apiBase = apiBase
-    self.stashBase = stashBase
+  def __init__(self, apiBase, repoPath):
+    self.apiBase = apiBase    
+    self.repoPath = repoPath
+    self.apiRoot = None
+
+  def importMeta(self):
+    pass
+    
+  def installFiles(self):
+    pass
+
+  # -------------------------------------------------------------- #
+  # createPath
+  # ---------------------------------------------------------------#
+  def createPath(self, sysPath, isApiPath):
+    if isApiPath:
+      sysPath = sysPath % self.apiBase
+    logger.info('making system path : ' + sysPath)
+    os.system('mkdir -p ' + sysPath)
+    return sysPath
+    
+  # -------------------------------------------------------------- #
+  # makeVirtualEnv
+  # ---------------------------------------------------------------#
+  def makeVirtualEnv(self, makeMeta):
+  
+    logger.info('making virtual enviroment ...')
+    if not self.apiRoot:
+      raise Exception('EEOWW! api root is not defined, aborting ...')
+      
+    virtualenv.create_environment(self.apiRoot)
+    logger.info('activating virtual enviroment ...')
+    activate_this = self.apiRoot + '/bin/activate_this.py'
+    execfile(activate_this, dict(__file__=activate_this))
+  
+    # pip install a package using the venv as a prefix
+    for envItem in makeMeta['PipEnv']:
+      pipKey, pipVal = envItem.split('|')
+      os.environ[pipKey] = pipVal
+    pipRequire = self.apiRoot + '/requirements.txt'
+    logger.info('install requirements by pip ...')
+    pip.main(["install", "--prefix", self.apiRoot, "-r", pipRequire])
+    os.system('chgrp -R actuser /apps/webapi/')
+
+  # -------------------------------------------------------------- #
+  # run
+  # ---------------------------------------------------------------#
+  def run(self):
+    logger.info('### repoPath : %s ' % self.repoPath)    
+    logger.info('### starting api installation ...  ###')
+
+    try:
+      makeMeta = self.importMeta()
+    except ValueError as ex:
+      errmsg = 'apiInstaller.json markup is not valid : ' + str(ex)
+      logger.error(errmsg)
+      raise
+    except KeyError as ex:
+      errmsg = 'apiInstaller.json is missing required install key ' + str(ex)
+      logger.error(errmsg)
+      raise
+    self.installFiles(makeMeta)
+    self.makeVirtualEnv(makeMeta)
+
+# -------------------------------------------------------------- #
+# StashApiInstaller
+# ---------------------------------------------------------------#
+class StashApiInstaller(ApiInstaller):
+  
+  def __init__(self, apiBase, repoPath):
+    super(StashApiInstaller, self).__init__(apiBase, repoPath)
+    self.repoPath = repoPath
 
   # -------------------------------------------------------------- #
   # downloadFile
   # ---------------------------------------------------------------#
   def downloadFile(self, item, repoPath, apiPath):
-    stashUri = '%s/%s/%s' % (self.stashBase, repoPath, item)
+    stashUri = '%s/%s/%s' % (self.repoPath, repoPath, item)
     outFile = '%s/%s' % (apiPath, item)
     logger.info('downloading %s/%s' % (repoPath, item))
     logger.info('downloading into %s ...' % outFile)
@@ -87,20 +157,11 @@ class ApiInstaller(object):
     return makeMeta
 
   # -------------------------------------------------------------- #
-  # createPath
-  # ---------------------------------------------------------------#
-  def createPath(self, sysPath, isApiPath):
-    if isApiPath:
-      sysPath = sysPath % self.apiBase
-    logger.info('making system path : ' + sysPath)
-    os.system('mkdir -p ' + sysPath)
-    return sysPath
-
-  # -------------------------------------------------------------- #
   # installFiles
   # ---------------------------------------------------------------#
   def installFiles(self, makeMeta):  
   
+    logger.info('StashApiInstaller - installing files ...')
     # create and activate the virtual environment
     self.apiRoot = makeMeta['ApiAsset'][0].split('|')[-1] % self.apiBase
     logger.info('api root : ' + self.apiRoot)
@@ -116,44 +177,59 @@ class ApiInstaller(object):
       self.createPath(sysPath, False)
       if repoKey in makeMeta['RepoMap']:
         self.downloadFiles(makeMeta['RepoMap'][repoKey], sysPath)
-    os.system('chgrp -R actuser /apps/webapi/*')
+
+# -------------------------------------------------------------- #
+# FileSysApiInstaller
+# ---------------------------------------------------------------#
+class FileSysApiInstaller(ApiInstaller):
+  
+  def __init__(self, apiBase, repoPath):
+    super(FileSysApiInstaller, self).__init__(apiBase, repoPath)
   
   # -------------------------------------------------------------- #
-  # makeVirtualEnv
+  # importMeta
   # ---------------------------------------------------------------#
-  def makeVirtualEnv(self, makeMeta):
-  
-    logger.info('making virtual enviroment ...')
-    virtualenv.create_environment(self.apiRoot)
-    logger.info('activating virtual enviroment ...')
-    activate_this = self.apiRoot + '/bin/activate_this.py'
-    execfile(activate_this, dict(__file__=activate_this))
-  
-    # pip install a package using the venv as a prefix
-    for envItem in makeMeta['PipEnv']:
-      pipKey, pipVal = envItem.split('|')
-      os.environ[pipKey] = pipVal
-    pipRequire = self.apiRoot + '/requirements.txt'
-    logger.info('install requirements by pip ...')
-    pip.main(["install", "--prefix", self.apiRoot, "-r", pipRequire])
+  def importMeta(self):
+    apiMetaFile = self.repoPath + '/installer/apiInstaller.json'
+    with open(apiMetaFile,'r') as fhr:
+      makeMeta = json.load(fhr)
+    makeMeta['PipEnv']
+    makeMeta['ApiAsset']
+    makeMeta['OtherAsset']
+    makeMeta['RepoMap']
+    return makeMeta
 
   # -------------------------------------------------------------- #
-  # run
+  # installFiles
   # ---------------------------------------------------------------#
-  def run(self):
-    logger.info('### api installation is starting ###')
-    try:
-      makeMeta = self.importMeta()
-    except ValueError as ex:
-      errmsg = 'apiInstaller.json markup is not valid : ' + str(ex)
-      logger.error(errmsg)
-      raise
-    except KeyError as ex:
-      errmsg = 'apiInstaller.json is missing required install key ' + str(ex)
-      logger.error(errmsg)
-      raise
-    self.installFiles(makeMeta)
-    self.makeVirtualEnv(makeMeta)
+  def installFiles(self, makeMeta):  
+  
+    logger.info('FileSysApiInstaller - installing files ...')
+    # create and activate the virtual environment
+    self.apiRoot = makeMeta['ApiAsset'][0].split('|')[-1] % self.apiBase
+    logger.info('api root : ' + self.apiRoot)
+    if os.path.exists(self.apiRoot):
+      raise Exception('EEOWW! %s apienv already exists' % self.apiRoot)
+    for makePath in makeMeta['ApiAsset']:
+      repoKey, sysPath = makePath.split('|')
+      sysPath = self.createPath(sysPath, True)
+      if repoKey in makeMeta['RepoMap']:
+        self.copyFiles(makeMeta['RepoMap'][repoKey], sysPath)
+    for makePath in makeMeta['OtherAsset']:
+      repoKey, sysPath = makePath.split('|')
+      self.createPath(sysPath, False)
+      if repoKey in makeMeta['RepoMap']:
+        self.copyFiles(makeMeta['RepoMap'][repoKey], sysPath)
+
+  # -------------------------------------------------------------- #
+  # copyFiles
+  # ---------------------------------------------------------------#
+  def copyFiles(self, repoItems, apiPath):
+    logger.info('installing codes in ' + apiPath)
+    repoPath = '%s/%s' % (self.repoPath, repoItems.pop(0))
+    for item in repoItems:
+      os.system('cp %s/%s %s' % (repoPath,item,apiPath))
+
 
 if __name__ == '__main__':
 
@@ -172,16 +248,24 @@ if __name__ == '__main__':
   logger.addHandler(consoleHandler)
   logger.setLevel(logging.INFO)
 
-  if len(sys.argv) != 2:
-    errmsg = 'wrong args count. apiInstaller.py expects 1 arguments : code source stashUrl'
+  stashBase = 'https://bitbucket.int.corp.sun/projects/PI/repos/ci/browse/PiDevApps/CsvCheckerApi'
+  
+  parser = OptionParser()
+  parser.add_option("-r", "--repoPath", dest="repoPath",
+                  help="provide source repo base url", default=stashBase)
+  (options, args) = parser.parse_args()
+
+  if len(args) != 0:
+    errmsg = 'wrong args count. apiInstaller.py expects 1 option argument : code source repoPath'
     logger.error(errmsg)
     raise Exception(errmsg)
-
-  stashBase = sys.argv[1]
   
   try:
     getCredentials()
-    installer = ApiInstaller('webapi', stashBase)
+    if options.repoPath[:7] == 'file://':
+      installer = FileSysApiInstaller('webapi', options.repoPath[7:])
+    else:
+      installer = StashApiInstaller('webapi', options.repoPath)
     installer.run()
   except (Exception, OSError) as ex:
     logger.error('caught exception : ' + str(ex))
