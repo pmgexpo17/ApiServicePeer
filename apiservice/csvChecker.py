@@ -54,11 +54,11 @@ class CsvChecker(AppDirector):
   def _start(self, tblKey):
     logger.info('csvChecker.CsvChecker._start, caller : ' + self.caller)
     self.resolve.tblKey = tblKey
+    CcEmailPrvdr.subscribe('CsvChecker')
     scriptPrvdr = CcScriptPrvdr(self._leveldb,self.jobId,self.caller)
     scriptPrvdr.tblKey = tblKey
     tsXref, pmeta = scriptPrvdr()
     self.resolve._start(tsXref, pmeta)
-    CcEmailPrvdr.subscribe('CsvChecker')
 
   # -------------------------------------------------------------- #
   # advance
@@ -118,10 +118,11 @@ class CsvChecker(AppDirector):
     # if CcResolvar has caught an exception an error mail is ready to be sent
     if not CcEmailPrvdr.hasMailReady('CsvChecker'):
       method = 'csvChecker.CcResolvar.' + self.state.current
-      errdesc = 'unmanaged error'
+      errdesc = 'system error'
       self.sendMail('ERR1',method,errdesc,str(ex))
-      return
-    CcEmailPrvdr.sendMail('CsvChecker')
+    else:
+      CcEmailPrvdr.sendMail('CsvChecker')
+    self.putApiRequest(500)
 
   # -------------------------------------------------------------- #
   # sendMail
@@ -184,7 +185,7 @@ class CcResolvar(AppResolvar):
     sysArgs = ['sas','-sysin',sasPrgm,'-set','tname',self.tblKey]
     sysArgs += ['-altlog',logfile]
 
-    logger.info('run importAppCsv.sas in subprocess ...')
+    logger.info('run evalCsvSgmtCount.sas in subprocess ...')
     cwd = self.pmeta['progLib']
     stdout = self.runProcess(sysArgs,cwd=cwd)
     self.sgmtCount = int(stdout);
