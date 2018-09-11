@@ -362,23 +362,23 @@ class CcScriptPrvdr(SasScriptPrvdr, SysCmdUnit):
   # ---------------------------------------------------------------#
   def __call__(self):
     self.pmeta = self.getProgramMeta()
+    self.method = 'csvChecker.CcScriptPrvdr.__call__'
     try:
       self.compileScript('evalCsvSgmtCount.sas')
       self.compileScript('applyOracleBySgmt.sas')
       self.compileScript('makeOracleBySgmt.sas',incItems=['ccautoLib','workSpace'])
       self.compileScript('csvChecker.sas',incItems=['ccautoLib','workSpace'])
-      dbKey = 'TSXREF|' + self.caller
-      try:
-        tsXref = self._leveldb.Get(dbKey)
-      except KeyError:
-        errmsg = 'EEOWW! tsXref param not found : ' + dbKey
-        self.newMail('ERR1','leveldb lookup failed',errmsg)
-        raise Exception(errmsg)
-      return (tsXref, self.pmeta)
     except Exception as ex:
-      self.method = 'csvChecker.CcScriptPrvdr.__call__'
       self.newMail('ERR1','compile script error',str(ex))
       raise
+    try:
+      dbKey = 'TSXREF|' + self.caller
+      tsXref = self._leveldb.Get(dbKey)
+      return (tsXref, self.pmeta)
+    except KeyError:
+      errmsg = 'EEOWW! tsXref param not found : ' + dbKey
+      self.newMail('ERR1','leveldb lookup failed',errmsg)
+      raise Exception(errmsg)
 
   # -------------------------------------------------------------- #
   # newMail
