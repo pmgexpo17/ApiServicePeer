@@ -78,26 +78,15 @@ class CcEmailPrvdr(AppResolvar):
     self.__dict__['ERR2'] = self.setBodyERR2
     self.__dict__['ERR3'] = self.setBodyERR3
     self.__dict__['EOP1'] = self.setBodyEOP1
-    
-  # -------------------------------------------------------------- #
-  # _start
-  # ---------------------------------------------------------------#  
-  @staticmethod
-  def _start(mailKey, pmeta):
-
-    mailer = CcEmailPrvdr.mailer = CcEmailPrvdr()
-    mailer.jobTitle = pmeta['jobTitle']
-    mailer.progLib = pmeta['progLib']
-    mailer.workSpace = pmeta['workSpace']
-    mailer._to = pmeta['userEmail'].split(' ')
-    mailer._from = pmeta['userEmail']
-    CcEmailPrvdr.subscribe(mailKey)
+    # add default params for _start error message handling
+    self.jobTitle = 'emailPrvdr.CcEmailPrvdr.init'
+    self._to = 'john.smith@suncorp.com.au'
+    self._from = 'fred.jones@suncorp.com.au'
         
-    assetFile = pmeta['assetLib'] + '/ccEmailTmplt.yaml'
     # put default error body for unmanaged exceptions
-    mailer.meta = {'ERR1':['','']}
-    mailer.meta['ERR1'][0] = 'CsvChecker has reported an error :<'
-    mailer.meta['ERR1'][1] = '''
+    self.meta = {'ERR1':['','']}
+    self.meta['ERR1'][0] = 'CsvChecker has reported an error'
+    self.meta['ERR1'][1] = '''
   Hi APP fasttracks team,
 
     CsvChecker has reported an error :<
@@ -109,20 +98,33 @@ class CcEmailPrvdr(AppResolvar):
   Regards,
   APP cloud apps team
 '''
+
+  # -------------------------------------------------------------- #
+  # _start
+  # ---------------------------------------------------------------#  
+  def _start(self, mailKey, pmeta):
+
+    self.jobTitle = pmeta['jobTitle']
+    self.progLib = pmeta['progLib']
+    self.workSpace = pmeta['workSpace']
+    self._to = pmeta['userEmail'].split(' ')
+    self._from = pmeta['userEmail']
+
+    assetFile = pmeta['assetLib'] + '/ccEmailTmplt.yaml'
     msgScope = 'emailPrvdr.CcEmailPrvdr._start'
     with open(assetFile,'r') as fhr:
       try:
-        mailer.meta = yaml.load(fhr)
+        self.meta = yaml.load(fhr)
       except yaml.scanner.ScannerError as ex:
         CcEmailPrvdr.sendMail(mailKey,'ERR1',msgScope,'yaml parse error',str(ex))
         raise Exception(str(ex))
     try:
-      mailer.meta['fromUser']
+      self.meta['fromUser']
     except KeyError as ex:
       CcEmailPrvdr.sendMail(mailKey,'ERR1',msgScope,'yaml key error',str(ex))
       raise Exception(str(ex))
     else:
-      mailer._from = mailer.meta['fromUser']
+      self._from = self.meta['fromUser']
 
   # ------------------------------------------------------------ #
   # - _newMail
@@ -244,5 +246,20 @@ class CcEmailPrvdr(AppResolvar):
   # ---------------------------------------------------------------#  
   @staticmethod
   def subscribe(mailKey):
-    with CcEmailPrvdr._lock:      
+    with CcEmailPrvdr._lock:
       CcEmailPrvdr.mailer.mailbox[mailKey] = None
+
+  # -------------------------------------------------------------- #
+  # init
+  # ---------------------------------------------------------------#  
+  @staticmethod
+  def init(mailKey):
+    CcEmailPrvdr.mailer = CcEmailPrvdr()
+    CcEmailPrvdr.subscribe(mailKey)
+
+  # -------------------------------------------------------------- #
+  # start
+  # ---------------------------------------------------------------#  
+  @staticmethod
+  def start(mailKey, pmeta):
+    CcEmailPrvdr.mailer._start(mailKey, pmeta)
