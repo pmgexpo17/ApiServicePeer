@@ -104,6 +104,7 @@ class AppDirector(SysCmdUnit):
           self.state.complete = True
           self.state.failed = True
           logger.error('_start failed : ' + str(ex))
+          self.onError(ex)
           return
       try:
         self.runApp(*args, **kwargs)
