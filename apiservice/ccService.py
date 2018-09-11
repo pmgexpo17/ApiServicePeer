@@ -50,7 +50,7 @@ class CcDirector(AppDirector):
     logger.info('ccService.CcDirector._start')
     scriptPrvdr = CcScriptPrvdr(self._leveldb, self.jobId)
     pmeta = scriptPrvdr()
-    CcEmailPrvdr._start('CcDirector',pmeta)
+    CcEmailPrvdr._start('CcDirector',pmeta)    
     self.resolve._start(pmeta)
     
   # -------------------------------------------------------------- #
@@ -112,7 +112,7 @@ class CcDirector(AppDirector):
     # if CcResolvar has caught an exception an error mail is ready to be sent
     if not CcEmailPrvdr.hasMailReady('CcDirector'):
       method = 'ccService.CcResolvar.' + self.state.current
-      errdesc = 'unmanaged error'
+      errdesc = 'system error'
       self.sendMail('ERR1',method,errdesc,str(ex))
       return
     CcEmailPrvdr.sendMail('CcDirector')
@@ -394,4 +394,3 @@ class CcScriptPrvdr(SasScriptPrvdr, SysCmdUnit):
     credentials = username + ':' + password
     self._leveldb.Put(dbKey,credentials)
     self.uid = username
-    
