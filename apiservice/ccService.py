@@ -48,9 +48,10 @@ class CcDirector(AppDirector):
   # ---------------------------------------------------------------#                                          
   def _start(self):
     logger.info('ccService.CcDirector._start')
+    CcEmailPrvdr.init('CcDirector')    
     scriptPrvdr = CcScriptPrvdr(self._leveldb, self.jobId)
     pmeta = scriptPrvdr()
-    CcEmailPrvdr._start('CcDirector',pmeta)    
+    CcEmailPrvdr.start('CcDirector',pmeta)
     self.resolve._start(pmeta)
     
   # -------------------------------------------------------------- #
