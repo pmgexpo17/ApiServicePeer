@@ -20,8 +20,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 #
-from apiservice import AppDirector, AppResolvar, AppListener, SasScriptPrvdr, SysCmdUnit, logger
-from apitools import CcEmailPrvdr
+from apibase import AppDirector, AppResolvar, AppListener, SasScriptPrvdr, SysCmdUnit, logger
+from apitools.cc import CcEmailPrvdr
 import os, sys, time
 import json
 import requests
