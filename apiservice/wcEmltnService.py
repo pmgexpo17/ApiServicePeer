@@ -1,37 +1,36 @@
-from apiservice import SysCmdUnit, AppDirector, AppState, AppResolveUnit, AppListener, SasScriptPrvdr, logger
+from apibase import (AppDirector, AppState, AppResolvar, AppListener,
+  SasScriptPrvdr, SysCmdUnit, logger)
+from apitools.wcemltn import WcEmailPrvdr
 import datetime
-from email.mime.text import MIMEText
 from threading import RLock
 import logging
 import json
 import os, sys, time
 import requests
-import smtplib
 import uuid
 
 # -------------------------------------------------------------- #
-# WcEmltnDirector
+# WcDirector
 # ---------------------------------------------------------------#
-class WcEmltnDirector(AppDirector):
+class WcDirector(AppDirector):
 
   def __init__(self, leveldb, jobId):
-    super(WcEmltnDirector, self).__init__(leveldb, jobId)
-    self.appType = 'director'
+    super(WcDirector, self).__init__(leveldb, jobId)
+    self._type = 'director'
     self.state.hasNext = True
-    self.resolve = WcResolveUnit()
+    self.resolve = WcResolvar()
     self.resolve.state = self.state
-    self.mailer = WcEmailUnit()
-    self.mailer.state = self.state
 
   # -------------------------------------------------------------- #
   # _start
   # ---------------------------------------------------------------#                                          
   def _start(self):
-    logger.debug('[START] loadProgramMeta')
+    logger.info('wcService.WcDirector._start')
+    WcEmailPrvdr.init('WcDirector')
     scriptPrvdr = WcScriptPrvdr(self._leveldb, self.jobId)
     pmeta = scriptPrvdr()
+    WcEmailPrvdr.start('WcDirector',pmeta)
     self.resolve._start(pmeta)
-    self.mailer._start(pmeta)
 
   # -------------------------------------------------------------- #
   # advance
@@ -44,7 +43,9 @@ class WcEmltnDirector(AppDirector):
         self.state.transition = 'NA'
         self.state.inTransition = False
       else:
-        raise Exception('WcEmltnInputPrvdr server process failed, rc : %d' % signal)
+        errmsg = 'WcEmltnInputPrvdr failed, returned error signal : %d' % signal
+        logger.error(errmsg)
+        raise Exception(errmsg)
     elif self.state.transition == 'EMLTN_BYSGMT_NOWAIT':
       # signal = the http status code of the listener promote method
       if signal == 201:
@@ -52,15 +53,11 @@ class WcEmltnDirector(AppDirector):
         self.state.transition = 'NA'
         self.state.inTransition = False
       else:
-        raise Exception('WcEmltnBySgmt server process failed, rc : %d' % signal)
+        errmsg = 'WcEmltnBySgmt failed, returned error signal : %d' % signal
+        logger.error(errmsg)
+        raise Exception(errmsg)
     self.state.current = self.state.next
     return self.state
-
-  # -------------------------------------------------------------- #
-  # onError
-  # ---------------------------------------------------------------#
-  def onError(self, errorMsg):
-    self.mailer[self.state.current]('ERROR')
 
   # -------------------------------------------------------------- #
   # quicken
@@ -71,6 +68,8 @@ class WcEmltnDirector(AppDirector):
       self.putApiRequest()
     elif self.state.transition == 'EMLTN_BYSGMT_NOWAIT':
       self.putApiRequest()
+    elif self.state.complete and not self.state.failed:
+      self.onComplete()
 
   # -------------------------------------------------------------- #
   # putApiRequest
@@ -86,7 +85,7 @@ class WcEmltnDirector(AppDirector):
       response = requests.post(apiUrl,data=data)
       logger.info('api response ' + response.text)
     elif self.state.transition == 'EMLTN_BYSGMT_NOWAIT':      
-      classRef = 'wcEmltnService:WcEmltnBySgmt'
+      classRef = 'wcService:WcEmltnBySgmt'
       pdata = (self.jobId,classRef, self.resolve.txnNum)
       params = '{"type":"delegate","id":"%s","service":"%s","args":[%d]}' % pdata
       data = [('job',params)]
@@ -94,10 +93,39 @@ class WcEmltnDirector(AppDirector):
       response = requests.post(apiUrl,data=data)
       logger.info('api response ' + response.text)
 
+  # -------------------------------------------------------------- #
+  # onComplete
+  # ---------------------------------------------------------------#
+  def onComplete(self):
+    logger.info('sending completion email to user ...')
+    WcEmailPrvdr.newMail('WcDirector','EOP1')
+    WcEmailPrvdr.sendMail('WcDirector')
+
+  # -------------------------------------------------------------- #
+  # onError
+  # ---------------------------------------------------------------#
+  def onError(self, ex):
+    # if error is due to delegate failure then don't post an email
+    if self.state.inTransition:
+      return
+    # if WcResolvar has caught an exception an error mail is ready to be sent
+    if not WcEmailPrvdr.hasMailReady('WcDirector'):
+      method = 'wcService.WcResolvar.' + self.state.current
+      errdesc = 'system error'
+      self.sendMail('ERR1',method,errdesc,str(ex))
+      return
+    WcEmailPrvdr.sendMail('WcDirector')
+
+  # -------------------------------------------------------------- #
+  # sendMail
+  # ---------------------------------------------------------------#
+  def sendMail(self, *args):      
+    WcEmailPrvdr.sendMail('WcDirector',*args)
+
 # -------------------------------------------------------------- #
-# WcResolveUnit
+# WcResolvar
 # ---------------------------------------------------------------#
-class WcResolveUnit(AppResolveUnit):
+class WcResolvar(AppResolvar):
   
   def __init__(self):
     self.__dict__['XML_TO_SAS'] = self.XML_TO_SAS
@@ -110,6 +138,12 @@ class WcResolveUnit(AppResolveUnit):
     self.sgmtCount = 0
     self.txnNum = 0  
     self.txnCount = 0
+
+  # -------------------------------------------------------------- #
+  # newMail
+  # ---------------------------------------------------------------#
+  def newMail(self, bodyKey, *args):
+    WcEmailPrvdr.newMail('WcDirector',bodyKey,self.method,*args)
 
   # -------------------------------------------------------------- #
   # XML_TO_SAS - evalTxnCount
@@ -130,38 +164,6 @@ class WcResolveUnit(AppResolveUnit):
     logger.info('[START] landriveMount')    
     self.state.current = 'XML_TO_SAS'
     self.pmeta = pmeta
-    self.mountPath = 'webapi/wcemltn/session'
-    logger.info('landrive mount path : ' + self.mountPath)
-    unMounted = self.sysCmd(['grep','-w',self.mountPath,'/etc/mtab'])
-    if not unMounted:
-      logger.info('landrive is already mounted : ' + self.mountPath)
-      return
-
-    logger.info('wcemltn service base : ' + self.pmeta['localBase'])
-    cifsEnv = os.environ['HOME'] + '/.wcemltn/cifs_env'
-    with open(cifsEnv,'w') as fhw:
-      fhw.write('ADUSER=%s\n' % os.environ['USER'])
-      fhw.write("DFSPATH='%s'\n" % self.pmeta['localBase'])
-      fhw.write('MOUNTINST=%s\n' % self.mountPath)
-    
-    credentials = os.environ['HOME'] + '/.landrive'
-    runDir = os.environ['HOME'] + '/.wcemltn'
-    sysArgs = ['sudo','landrive.sh','--mountcifs','--cifsenv','cifs_env','--credentials',credentials]
-    self.sysCmd(sysArgs,cwd=runDir)
-
-    sysArgs = ['grep','-w',self.mountPath,'/etc/mtab']
-    unMounted = self.sysCmd(['grep','-w',self.mountPath,'/etc/mtab'])
-    if unMounted:
-      errmsg = 'failed to mount landrive : ' + self.mountPath
-      logger.error(errmsg)
-      raise Exception(errmsg)
-
-    linkPath = self.pmeta['linkBase']
-    logger.info('landrive symlink : ' + linkPath)
-    self.landrive = '/lan/%s/%s' % (os.environ['USER'], self.mountPath)
-    logger.info('landrive : ' + self.landrive)
-    if not os.path.exists(linkPath):
-      self.sysCmd(['ln','-s', self.landrive, linkPath])
 
   # -------------------------------------------------------------- #
   # getTxnCount -
@@ -169,11 +171,16 @@ class WcResolveUnit(AppResolveUnit):
   def getTxnCount(self):
     sasPrgm = 'batchTxnScheduleWC.sas'
     logfile = 'log/batchTxnScheduleWC.log'
-    sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
+    sysArgs = ['sas','-sysin',sasPrgm,'-altlog',logfile]
     
     logger.info('run batchTxnScheduleWC.sas in subprocess ...')
-    cwd = self.pmeta['progLib']
-    stdout = self.runProcess(sysArgs,cwd=cwd)
+    progLib = self.pmeta['progLib']
+    try:
+      stdout = self.runProcess(sysArgs,cwd=progLib)
+    except Exception:
+      self.newMail('ERR2','restackTxnOutputWC',logfile,progLib)
+      raise
+      
     logger.info('program output : %s' % stdout)
     
     txnPacket = json.loads(stdout)
@@ -222,11 +229,15 @@ class WcResolveUnit(AppResolveUnit):
     sasPrgm = 'restackTxnOutputWC.sas'
     logfile = 'log/restackTxnOutputWC.log'
     txnCount = str(self.txnCount)
-    sysArgs = ['sas','-sysin',sasPrgm,'-set','txnCount',txnCount,'-log',logfile,'-logparm','open=replace']
+    sysArgs = ['sas','-sysin',sasPrgm,'-set','txnCount',txnCount,'-altlog',logfile]
 
     logger.info('run restackTxnOutputWC.sas in subprocess ...')
-    cwd = self.pmeta['progLib']
-    self.runProcess(sysArgs,cwd=cwd)
+    progLib = self.pmeta['progLib']
+    try:
+      self.runProcess(sysArgs,cwd=progLib)
+    except Exception:
+      self.newMail('ERR2','restackTxnOutputWC',logfile,progLib)
+      raise
 
   # -------------------------------------------------------------- #
   # TXN_SGMT_REPEAT - evalTxnSgmtRepeat
@@ -248,13 +259,18 @@ class WcResolveUnit(AppResolveUnit):
     sasPrgm = 'batchScheduleWC.sas'
     logfile = 'log/batchScheduleWC.log'
     txnIndex = str(self.txnNum)
-    sysArgs = ['sas','-sysin',sasPrgm,'-set','txnIndex',txnIndex,'-log',logfile,'-logparm','open=replace']
+    sysArgs = ['sas','-sysin',sasPrgm,'-set','txnIndex',txnIndex,'-altlog',logfile]
     
     logger.info('run batchScheduleWC.sas in subprocess, txn[%d] ...' % self.txnNum)
-    cwd = self.pmeta['progLib']
-    stdout = self.runProcess(sysArgs,cwd=cwd)
-    logger.info('program output : %s' % stdout)
+    progLib = self.pmeta['progLib']
+    try:
+      stdout = self.runProcess(sysArgs,cwd=progLib)
+    except Exception:
+      self.newMail('ERR2','batchScheduleWC',logfile,progLib)
+      raise
 
+    logger.info('program output : %s' % stdout)
+    
     sgmtPacket = json.loads(stdout)
     self.sgmtCount = sgmtPacket['count']
 
@@ -277,12 +293,16 @@ class WcResolveUnit(AppResolveUnit):
     logfile = 'log/restackSgmtOutputWC_txn%d.log' % self.txnNum
     txnIndex = str(self.txnNum)
     sgmtCount = str(self.sgmtCount)
-    sysArgs = ['sas','-sysin',sasPrgm,'-set','txnIndex',txnIndex,'-set','sgmtCount',sgmtCount]
-    sysArgs += ['-log',logfile,'-logparm','open=replace']
+    sysArgs = ['sas','-sysin',sasPrgm,'-set','txnIndex',txnIndex]
+    sysArgs += ['-set','sgmtCount',sgmtCount,'-altlog',logfile]
     
     logger.info('run restackSgmtOutputWC.sas in subprocess txn[%d] ...' % self.txnNum)
-    cwd = self.pmeta['progLib']
-    self.runProcess(sysArgs,cwd=cwd)
+    progLib = self.pmeta['progLib']
+    try:
+      self.runProcess(sysArgs,cwd=progLib)
+    except Exception:
+      self.newMail('ERR2','restackSgmtOutputWC',logfile,progLib)
+      raise
 
 # -------------------------------------------------------------- #
 # WcEmltnBySgmt
@@ -294,28 +314,40 @@ class WcEmltnBySgmt(SysCmdUnit):
     self.caller = caller
     
   # -------------------------------------------------------------- #
-  # runEmltnBySgmt
+  # WcEmltnBySgmt
   # ---------------------------------------------------------------#
   def __call__(self, txnNum, sgmtNum):
+    self.method = 'wcService.WcEmltnBySgmt.__call__'
     dbKey = 'PMETA|PROGLIB|' + self.caller
     try:
       progLib = self._leveldb.Get(dbKey)
     except KeyError:
       raise Exception('EEOWW! pmeta proglib param not found : ' + dbKey)
-    sasPrgm = 'batchEmulatorWC_txn%d_s%d.sas' % (txnNum, sgmtNum)
-    logfile = 'log/batchEmulatorWC_txn%d_s%d.log' % (txnNum, sgmtNum)
-    sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
-
-    logger.info('run batchEmulatorWC_txn%d_s%d.sas in subprocess ...' % (txnNum, sgmtNum))
-    self.runProcess(sysArgs,cwd=progLib)
+    try:
+      sasPrgm = 'batchEmulatorWC_txn%d_s%d.sas' % (txnNum, sgmtNum)
+      logfile = 'log/batchEmulatorWC_txn%d_s%d.log' % (txnNum, sgmtNum)
+      sysArgs = ['sas','-sysin',sasPrgm,'-altlog',logfile]
+  
+      logMsg = 'run batchEmulatorWC_txn%d_s%d.sas in subprocess ...'
+      logger.info(logMsg % (txnNum, sgmtNum))
+      self.runProcess(sysArgs,cwd=progLib)
+    except Exception:
+      self.sendMail(sasPrgm, logfile, progLib)
+      raise
+    
+  # -------------------------------------------------------------- #
+  # newMail
+  # ---------------------------------------------------------------#
+  def sendMail(self, *args):
+    WcEmailPrvdr.sendMail('WcDirector','ERR2',self.method,*args)
 
 # -------------------------------------------------------------- #
-# WcEmltnListener
+# WcListener
 # ---------------------------------------------------------------#
-class WcEmltnListener(AppListener):
+class WcListener(AppListener):
 
   def __init__(self, leveldb, caller):
-    super(WcEmltnListener, self).__init__(leveldb, caller)
+    super(WcListener, self).__init__(leveldb, caller)
     self.state = None
     self.jobIdList = []
 
@@ -343,117 +375,13 @@ class WcEmltnListener(AppListener):
   # putApiRequest
   # ---------------------------------------------------------------#
   def putApiRequest(self, signal):
-    classRef = 'wcEmltnService:WcEmltnDirector'
+    classRef = 'wcService:WcDirector'
     pdata = (self.caller,classRef, json.dumps({'signal':signal}))
     params = '{"type":"director","id":"%s","service":"%s","kwargs":%s,"args":[]}' % pdata
     data = [('job',params)]
     apiUrl = 'http://localhost:5000/api/v1/smart'
     response = requests.post(apiUrl,data=data)
     logger.info('api response ' + response.text)
-
-# -------------------------------------------------------------- #
-# WcEmailUnit
-# ---------------------------------------------------------------#
-class WcEmailUnit(AppResolveUnit):
-  
-  def __init__(self):
-    self.__dict__['XML_TO_SAS'] = self.XML_TO_SAS
-    self.__dict__['TXN_REPEAT'] = self.TXN_REPEAT
-    self.__dict__['TXN_SGMT_REPEAT'] = self.TXN_SGMT_REPEAT
-    self.__dict__['TXN_SGMT_RESTACK'] = self.TXN_SGMT_RESTACK
-    self._from = 'Pricing-Implementation-CI-Fasttracks@suncorp.com.au'
-    self.pmeta = None
-    self.state = None
-
-  # -------------------------------------------------------------- #
-  # _start
-  # ---------------------------------------------------------------#  
-  def _start(self, pmeta):
-    self.pmeta = pmeta
-    self._to = self.pmeta['userEmail']
-    
-  # -------------------------------------------------------------- #
-  # TXN_SGMT_RESTACK
-  # ---------------------------------------------------------------#  
-  def sendMail(self, subject, body):
-
-    msg = MIMEText(body, 'plain')
-    msg['Subject'] = subject
-    msg['From'] = self._from
-    msg['To'] = self._to
-
-    smtp = smtplib.SMTP('smlsmtp')
-    smtp.sendmail(self._from, [self._to], msg.as_string())
-    smtp.quit()
-
-  # -------------------------------------------------------------- #
-  # XML_TO_SAS
-  # ---------------------------------------------------------------#
-  def XML_TO_SAS(self, context):
-    
-    subject, body = self.getEmailBody(context)
-    script = 'wcInputXml2Sas'
-    if context == 'ERROR':
-      body = body % (script, script, self.pmeta['progLib'])
-    self.sendMail(subject, body)
-
-  # -------------------------------------------------------------- #
-  # TXN_REPEAT
-  # ---------------------------------------------------------------#
-  def TXN_REPEAT(self, context):
-
-    if self.state.next == 'XML_TO_SAS':
-      script = 'wcInputXmlToSas'
-    elif self.state.next == 'TXN_REPEAT':
-      script = 'batchTxnScheduleWC'
-    elif self.state.next == 'COMPLETE':
-      script = 'restackTxnOutputWC'
-    subject, body = self.getEmailBody(context)
-    if context == 'ERROR':
-      body = body % (script, script, self.pmeta['progLib'])
-    self.sendMail(subject, body)
-    
-  # -------------------------------------------------------------- #
-  # TXN_SGMT_REPEAT
-  # ---------------------------------------------------------------#
-  def TXN_SGMT_REPEAT(self, context):
-    
-    subject, body = self.getEmailBody(context)
-    script = 'batchScheduleWC'
-    if context == 'ERROR':
-      body = body % (script, script, self.pmeta['progLib'])
-    self.sendMail(subject, body)
-
-  # -------------------------------------------------------------- #
-  # TXN_SGMT_RESTACK
-  # ---------------------------------------------------------------#
-  def TXN_SGMT_RESTACK(self, context):
-
-    subject, body = self.getEmailBody(context)
-    script = 'restackSgmtOutputWC'
-    if context == 'ERROR':
-      body = body % (script, script, self.pmeta['progLib'])
-    self.sendMail(subject, body)
-
-  # -------------------------------------------------------------- #
-  # getEmailBody
-  # ---------------------------------------------------------------#
-  def getEmailBody(self, context, errMsg=None):
-
-#    errNote = '\nsystem message : %s\n' % errMsg if errMsg else ''
-    errBody = '''
-  Hi CI workerscomp team,
-    CI workerscomp %s.sas has errored :<
-    Please inspect %s.log to get the error details
-    Your workerscomp emulation log region is : %s/log
-    Then contact us for further investigation
-  Thanks and Regards,
-  CI workerscomp emulation team
-'''
-    if context == 'ERROR':
-      subject = 'ci workerscomp emulation has errored :<'
-      return (subject, errBody)
-    return ('','')
 
 # -------------------------------------------------------------- #
 # WcScriptPrvdr
@@ -468,23 +396,34 @@ class WcScriptPrvdr(SasScriptPrvdr, SysCmdUnit):
   # __call__
   # ---------------------------------------------------------------#
   def __call__(self):
-    self.pmeta = self.getProgramMeta()
-    self.compileScript('batchTxnScheduleWC.sas')    
-    self.compileScript('batchScheduleWC.sas')
-    incItems = ['ciwork','macroLib']
-    self.compileScript('restackSgmtOutputWC.sas',incItems=incItems)
-    incItems = ['ciwork','macroLib','progLib','userEmail']
-    self.compileScript('restackTxnOutputWC.sas',incItems=incItems)
-    cwd = self.pmeta['assetLib']
-    self.sysCmd(['cp','batchEmulatorWC.inc',self.pmeta['progLib']],cwd=cwd)
     self.putCredentials()
-    return self.pmeta
+    self.pmeta = self.getProgramMeta()
+    self.method = 'wcService.WcScriptPrvdr.__call__'    
+    try:
+      self.compileScript('batchTxnScheduleWC.sas')    
+      self.compileScript('batchScheduleWC.sas')
+      incItems = ['ciwork','macroLib']
+      self.compileScript('restackSgmtOutputWC.sas',incItems=incItems)
+      incItems = ['ciwork','macroLib','progLib','userEmail']
+      self.compileScript('restackTxnOutputWC.sas',incItems=incItems)
+      cwd = self.pmeta['assetLib']
+      self.sysCmd(['cp','batchEmulatorWC.inc',self.pmeta['progLib']],cwd=cwd)
+      return self.pmeta
+    except Exception as ex:
+      self.newMail('ERR1','compile script error',str(ex))
+      raise
+
+  # -------------------------------------------------------------- #
+  # newMail
+  # ---------------------------------------------------------------#
+  def newMail(self, bodyKey, *args):
+    WcEmailPrvdr.newMail('WcDirector',bodyKey,self.method,*args)
 
   # -------------------------------------------------------------- #
   # getProgramMeta
   # ---------------------------------------------------------------#
   def getProgramMeta(self):
-
+    self.method = 'wcService.WcScriptPrvdr.getProgramMeta'
     dbKey = 'TSXREF|' + self.jobId
     tsXref = datetime.datetime.now().strftime('%y%m%d%H%M%S')
     self._leveldb.Put(dbKey, tsXref)
@@ -493,53 +432,68 @@ class WcScriptPrvdr(SasScriptPrvdr, SysCmdUnit):
     try:
       pmetadoc = self._leveldb.Get(dbKey)
     except KeyError:
-      raise Exception('EEOWW! pmeta json document not found : ' + dbKey)
+      errmsg = 'EEOWW! pmeta json document not found : ' + dbKey
+      self.newMail('ERR1','leveldb lookup failed',errmsg)
+      raise Exception(errmsg)
 
-    pmetaAll = json.loads(pmetadoc)
-    ciwork = pmetaAll['Global']['ciwork']
-    session = '/WC' + tsXref
-    ciwork += session
-    self.sysCmd(['mkdir','-p',ciwork])
-    proglib = ciwork + '/saslib'
-    logdir = ciwork + '/saslib/log'
-    self.sysCmd(['mkdir',proglib])
-    self.sysCmd(['mkdir',logdir])
-    ciwork += '/ssnwork'
-    self.sysCmd(['mkdir',ciwork])
-    pmetaAll['Global']['ciwork'] = ciwork
-    pmetaAll['Global']['progLib'] = proglib
-    # write the pmeta session dict back for delegates to use
-    self._leveldb.Put(dbKey, json.dumps(pmetaAll))
-    dbKey = 'PMETA|PROGLIB|' + self.jobId
-    self._leveldb.Put(dbKey, proglib)
-    
-    pmeta = pmetaAll['WcEmltnDirector']
-    _globals = pmeta['globals'] # append global vars in this list
-    del(pmeta['globals'])
-    if _globals[0] == '*':
-      pmeta.update(pmetaAll['Global'])
-    else:
-      for item in _globals:
-        pmeta[item] = pmetaAll['Global'][item]
-    return pmeta
+    try:
+      pmetaAll = json.loads(pmetadoc)
+      ciwork = pmetaAll['Global']['ciwork']
+      session = '/WC' + tsXref
+      ciwork += session
+      self.sysCmd(['mkdir','-p',ciwork])
+      proglib = ciwork + '/saslib'
+      logdir = ciwork + '/saslib/log'
+      self.sysCmd(['mkdir',proglib])
+      self.sysCmd(['mkdir',logdir])
+      ciwork += '/ssnwork'
+      self.sysCmd(['mkdir',ciwork])
+      pmetaAll['Global']['ciwork'] = ciwork
+      pmetaAll['Global']['progLib'] = proglib
+      # write the pmeta session dict back for delegates to use
+      self._leveldb.Put(dbKey, json.dumps(pmetaAll))
+      dbKey = 'PMETA|PROGLIB|' + self.jobId
+      self._leveldb.Put(dbKey, proglib)
+      
+      pmeta = pmetaAll['WcDirector']
+      _globals = pmeta['globals'] # append global vars in this list
+      del(pmeta['globals'])
+      if _globals[0] == '*':
+        pmeta.update(pmetaAll['Global'])
+      else:
+        for item in _globals:
+          pmeta[item] = pmetaAll['Global'][item]
+      return pmeta
+    except Exception as ex:
+      self.newMail('ERR1','compile pmeta failed',str(ex))
+      raise
 
   # -------------------------------------------------------------- #
   # putCredentials -
   # ---------------------------------------------------------------#
   def putCredentials(self):
-
+    self.method = 'wcService.WcScriptPrvdr.putCredentials'
     credentials = os.environ['HOME'] + '/.landrive'
     username = None
     password = None
-    with open(credentials,'r') as fhr:
-      for credItem in fhr:
-        credItem = credItem.strip() 
-        if 'username' in credItem:
-          username = credItem.split('=')[1]
-        elif 'password' in credItem:
-          password = credItem.split('=')[1]
+    try:
+      with open(credentials,'r') as fhr:
+        for credItem in fhr:
+          credItem = credItem.strip() 
+          if 'username' in credItem:
+            username = credItem.split('=')[1]
+          elif 'password' in credItem:
+            password = credItem.split('=')[1]
+    except Exception as ex:
+      self.newMail('ERR1','failed to parse credentials file',str(ex))
+      raise
+     
     if not username or not password:
-      raise Exception('user landrive credentials are not valid')
+      errmsg = 'user landrive credentials are not valid'
+      self.newMail('ERR1','system error',errmsg)
+      raise Exception(errmsg)
+
     dbKey = 'CRED|' + self.jobId
     credentials = username + ':' + password
     self._leveldb.Put(dbKey,credentials)
+    self.uid = username
