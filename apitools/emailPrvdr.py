@@ -20,7 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 #
-from apiservice import AppResolvar, logger
+from apibase import AppResolvar, logger
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.utils import COMMASPACE, formatdate
@@ -80,12 +80,12 @@ class CcEmailPrvdr(AppResolvar):
     self.__dict__['EOP1'] = self.setBodyEOP1
     # add default params for _start error message handling
     self.jobTitle = 'emailPrvdr.CcEmailPrvdr.init'
-    self._to = 'john.smith@suncorp.com.au'
-    self._from = 'fred.jones@suncorp.com.au'
+    self._to = 'john.smith@acme.com.au'
+    self._from = 'john.smith@acme.com.au'
         
     # put default error body for unmanaged exceptions
     self.meta = {'ERR1':['','']}
-    self.meta['ERR1'][0] = 'CsvChecker has reported an error'
+    self.meta['ERR1'][0] = '%s - CsvChecker has reported an error'
     self.meta['ERR1'][1] = '''
   Hi APP fasttracks team,
 
