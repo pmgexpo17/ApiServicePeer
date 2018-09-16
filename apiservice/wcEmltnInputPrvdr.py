@@ -1,20 +1,21 @@
-from apiservice import AppDirector, AppResolveUnit, SasScriptPrvdr, logger
+from apibase import AppDirector, AppResolvar, SasScriptPrvdr, logger
+from apitools.wcemltn import WcEmailPrvdr
 from jinja2 import Environment, PackageLoader
 import os, sys, time
 import json
 import requests
 
 # -------------------------------------------------------------- #
-# WcEmltnInputPrvdr
+# WcInputPrvdr
 # ---------------------------------------------------------------#
-class WcEmltnInputPrvdr(AppDirector):
+class WcInputPrvdr(AppDirector):
 
   def __init__(self, leveldb, jobId, caller):
-    super(WcEmltnInputPrvdr,self).__init__(leveldb, jobId)
+    super(WcInputPrvdr,self).__init__(leveldb, jobId)
     self.caller = caller
-    self.appType = 'delegate'
+    self._type = 'delegate'
     self.state.hasNext = True
-    self.resolve = WcResolveUnit(leveldb)
+    self.resolve = WcResolvar(leveldb)
     self.resolve.state = self.state
 
   # -------------------------------------------------------------- #
@@ -22,15 +23,16 @@ class WcEmltnInputPrvdr(AppDirector):
   # - override to get the callee jobId sent from NormalizeXml partner
   # ---------------------------------------------------------------#
   def runApp(self, signal=None, callee=None):
-    logger.info('[START] WcEmltnInputPrvdr.runApp, callee : ' + str(callee))
+    logger.info('wcInputPrvdr.WcInputPrvdr.runApp, callee : ' + str(callee))
     self.resolve.callee = callee    
-    super(WcEmltnInputPrvdr, self).runApp(signal)
+    super(WcInputPrvdr, self).runApp(signal)
 
   # -------------------------------------------------------------- #
   # _start
   # ---------------------------------------------------------------#                                          
   def _start(self):
-    logger.info('[START] WcEmltnInputPrvdr._start, caller : ' + str(self.caller))
+    logger.info('wcInputPrvdr.WcInputPrvdr._start, caller : ' + str(self.caller))
+    WcEmailPrvdr.subscribe('WcInputPrvdr')
     scriptPrvdr = WcScriptPrvdr(self._leveldb,self.jobId,self.caller)
     tsXref, pmeta = scriptPrvdr()
     self.resolve._start(tsXref, pmeta)
@@ -46,15 +48,9 @@ class WcEmltnInputPrvdr(AppDirector):
         self.state.transition = 'NA'
         self.state.inTransition = False
       else:
-        raise Exception('WcEmltnInputPrvdr server process failed, rc : %d' % signal)
+        raise Exception('NORMALISE_XML failed, rc : %d' % signal)
     self.state.current = self.state.next
     return self.state
-
-  # -------------------------------------------------------------- #
-  # onError
-  # ---------------------------------------------------------------#
-  def onError(self, errorMsg):
-    self.putApiRequest(500)
 
   # -------------------------------------------------------------- #
   # quicken
@@ -87,10 +83,33 @@ class WcEmltnInputPrvdr(AppDirector):
       response = requests.post(apiUrl,data=data)
       logger.info('api response ' + response.text)
 
+  # -------------------------------------------------------------- #
+  # onError
+  # ---------------------------------------------------------------#
+  def onError(self, ex):
+    # if error is due to delegate failure then don't post an email
+    if self.state.inTransition:
+      self.putApiRequest(500)
+      return
+    # if WcResolvar has caught an exception an error mail is ready to be sent
+    if not WcEmailPrvdr.hasMailReady('WcInputPrvdr'):
+      method = 'wcInputPrvdr.WcResolvar.' + self.state.current
+      errdesc = 'system error'
+      self.sendMail('ERR1',method,errdesc,str(ex))
+    else:
+      WcEmailPrvdr.sendMail('WcInputPrvdr')
+    self.putApiRequest(500)
+
+  # -------------------------------------------------------------- #
+  # sendMail
+  # ---------------------------------------------------------------#
+  def sendMail(self,*args):      
+    WcEmailPrvdr.sendMail('WcInputPrvdr',*args)
+
 # -------------------------------------------------------------- #
-# WcResolveUnit
+# WcResolvar
 # ---------------------------------------------------------------#
-class WcResolveUnit(AppResolveUnit):
+class WcResolvar(AppResolvar):
   
   def __init__(self, leveldb):
     self._leveldb = leveldb
@@ -105,29 +124,41 @@ class WcResolveUnit(AppResolveUnit):
   # _start
   # ---------------------------------------------------------------#
   def _start(self, tsXref, pmeta):
-    logger.info('[START] WcResolveUnit._start')
-    self.tsXref = tsXref
-    self.pmeta = pmeta
-    self.state.current = 'NORMALISE_XML'
-    trnswrk = self.pmeta['ciwork'] + '/trnswrk'
-    cnvtwrk = self.pmeta['ciwork'] + '/cnvtwrk'
-    assets = self.pmeta['ciwork'] + '/assets'
-    self.sysCmd(['mkdir','-p',trnswrk])
-    self.sysCmd(['mkdir',cnvtwrk])
-    self.sysCmd(['mkdir',assets])    
-    xmlSchema = '%s/%s' % (self.pmeta['assetLib'], self.pmeta['xmlSchema'])
-    self.sysCmd(['cp',xmlSchema,assets]) # copy to here for normalizer to use
+    self.method = 'wcInputPrvdr.WcResolvar._start'
+    logger.info('wcInputPrvdr.WcResolvar._start')
+    try:
+      self.tsXref = tsXref
+      self.pmeta = pmeta
+      self.state.current = 'NORMALISE_XML'
+      trnswrk = self.pmeta['ciwork'] + '/trnswrk'
+      cnvtwrk = self.pmeta['ciwork'] + '/cnvtwrk'
+      assets = self.pmeta['ciwork'] + '/assets'
+      self.sysCmd(['mkdir','-p',trnswrk])
+      self.sysCmd(['mkdir',cnvtwrk])
+      self.sysCmd(['mkdir',assets])    
+      xmlSchema = '%s/%s' % (self.pmeta['assetLib'], self.pmeta['xmlSchema'])
+      self.sysCmd(['cp',xmlSchema,assets]) # copy to here for normalizer to use
+    except Exception as ex:
+      errmsg = 'error making sas format dict : ' + str(ex)
+      self.newMail('ERR1','compile pmeta failed',errmsg)
+      raise
     try:
       self.makeSasFormat(xmlSchema)
     except Exception as ex:
-      logger.info('error making sas format dict : ' + str(ex))
+      self.newMail('ERR1','system error',str(ex))
       raise
-    
+
+  # -------------------------------------------------------------- #
+  # newMail
+  # ---------------------------------------------------------------#
+  def newMail(self, bodyKey, *args):
+    WcEmailPrvdr.newMail('WcInputPrvdr',bodyKey,self.method,*args)
+
   # -------------------------------------------------------------- #
   # makeSasFormat
   # ---------------------------------------------------------------#
   def makeSasFormat(self, xmlSchema):
-    logger.info('[START] WcResolveUnit.makeSasFormat')
+    self.method = 'wcInputPrvdr.WcResolvar.makeSasFormat'
     with open(xmlSchema,'r') as fhr:
       schemaDoc = json.load(fhr)
     ukeyOrder = schemaDoc['uKeyOrder']
@@ -154,25 +185,29 @@ class WcResolveUnit(AppResolveUnit):
   # putUKeySasDefn
   # ---------------------------------------------------------------#
   def putUKeySasDefn(self, tableName, detail, columnDefn):
-    if not detail['keep']:
-      return
-    logger.info('table : ' + tableName)
-    ukeyRef = detail['ukeyDefn'].pop(0)
-    ukeyDefn = detail['ukeyDefn']
-    fkeyRef = detail['fkeyRef']
-
-    sasDefn = []
-    if fkeyRef:
-      dbKey = '%s|%s|SASFMT' % (self.tsXref, fkeyRef)
-      sasDefn = self.retrieve(dbKey)
-    for index in ukeyDefn:
-      defnItem = list(columnDefn[ukeyRef][index])
-      del(defnItem[1])
-      sasDefn += self.getSasFormat(defnItem)
-    dbKey = '%s|%s|SASFMT' % (self.tsXref, tableName)
-    logger.info('sas format : ' + str(sasDefn))
-    self._leveldb.Put(dbKey,json.dumps(sasDefn))
-
+    try:
+      if not detail['keep']:
+        return
+      logger.info('table : ' + tableName)
+      ukeyRef = detail['ukeyDefn'].pop(0)
+      ukeyDefn = detail['ukeyDefn']
+      fkeyRef = detail['fkeyRef']
+  
+      sasDefn = []
+      if fkeyRef:
+        dbKey = '%s|%s|SASFMT' % (self.tsXref, fkeyRef)
+        sasDefn = self.retrieve(dbKey)
+      for index in ukeyDefn:
+        defnItem = list(columnDefn[ukeyRef][index])
+        del(defnItem[1])
+        sasDefn += self.getSasFormat(defnItem)
+      dbKey = '%s|%s|SASFMT' % (self.tsXref, tableName)
+      logger.info('sas format : ' + str(sasDefn))
+      self._leveldb.Put(dbKey,json.dumps(sasDefn))
+    except Exception as ex:
+      self.method = 'wcInputPrvdr.WcResolvar.putUKeySasDefn'
+      raise
+      
   # -------------------------------------------------------------- #
   # getFKeySasDefn
   # ---------------------------------------------------------------#
@@ -180,7 +215,11 @@ class WcResolveUnit(AppResolveUnit):
     if not fkeyRef:
       return []
     dbKey = '%s|%s|SASFMT' % (self.tsXref, fkeyRef)
-    return self.retrieve(dbKey)
+    try:
+      return self.retrieve(dbKey)
+    except Exception as ex:
+      self.method = 'wcInputPrvdr.WcResolvar.getFKeySasDefn'
+      raise
 
   # -------------------------------------------------------------- #
   # retrieve
@@ -227,10 +266,10 @@ class WcResolveUnit(AppResolveUnit):
     return requests.post(apiUrl,data=data)
     
 	# -------------------------------------------------------------- #
-	# evalSasConsumer
+	# evalStreamConsumer
 	# ---------------------------------------------------------------#
-  def evalSasConsumer(self, template, params, tableName):
-
+  def evalStreamConsumer(self, template, params, tableName):
+    self.method = 'wcInputPrvdr.WcResolvar.evalStreamConsumer'
     params['tableName'] = tableName
     logger.info('sas import params : ' + str(params))
     sasDefn = self.sasDefn[tableName]
@@ -238,10 +277,12 @@ class WcResolveUnit(AppResolveUnit):
     template.stream(params=params,sasDefn=sasDefn).dump(sasPrgm)
     dstream = self.getDataStream(tableName)
     if dstream.status_code != 201:
-      raise Exception('data stream api request failed[%d] : %s' % (dstream.status_code,dstream.text))
+      self.method = 'wcInputPrvdr.WcResolvar.getDataStream'
+      errmsg = 'data stream api request failed[%d] : %s'
+      raise Exception(errmsg % (dstream.status_code,dstream.text))
     sasPrgm = tableName + '.sas'
     logfile = 'log/%s.log' % tableName
-    sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
+    sysArgs = ['sas','-sysin',sasPrgm,'-altlog',logfile]
     logger.info('run %s in subprocess ...' % sasPrgm)
     cwd = self.pmeta['progLib']    
     self.runProcess(sysArgs,stdin=dstream.text,cwd=cwd)
@@ -254,20 +295,35 @@ class WcResolveUnit(AppResolveUnit):
     self.state.inTransition = True
     self.state.next = 'IMPORT_TO_SAS'
     self.state.hasNext = True
-    return self.state
   
 	# -------------------------------------------------------------- #
 	# IMPORT_TO_SAS
 	# ---------------------------------------------------------------#
   def IMPORT_TO_SAS(self):
-    env = Environment(loader=PackageLoader('apiservice', 'xmlToSas'),trim_blocks=True)
+    try:
+      self.importToSas()
+      return self.state
+    except Exception as ex:
+      self.newMail('ERR1','data stream error',str(ex))
+      raise
+
+	# -------------------------------------------------------------- #
+	# importToSas
+	# ---------------------------------------------------------------#
+  def importToSas(self):
+    self.method = 'wcInputPrvdr.WcResolvar.importToSas'
+    env = Environment(loader=PackageLoader('apitools', 'wcemltn'),trim_blocks=True)
     template = env.get_template('streamToSas.sas')
     trnswrk = self.pmeta['ciwork'] + '/trnswrk'
     params = {'trnswrk': trnswrk, 'reclen': self.pmeta['reclen']}
     for tableName in sorted(self.sasDefn):
       logger.info('IMPORT_TO SAS : ' + tableName)
-      self.evalSasConsumer(template, params, tableName)
-    response = self.purgeDataStream()
+      self.evalStreamConsumer(template, params, tableName)
+    try:
+      response = self.purgeDataStream()
+    except Exception as ex:
+      self.method = 'wcInputPrvdr.WcResolvar.purgeDataStream'
+      raise      
     logger.info('api response ' + response.text)
     self.state.next = 'GET_PMOV_DATA'
     self.state.hasNext = True
@@ -296,7 +352,7 @@ class WcResolveUnit(AppResolveUnit):
     else:
       pmovDsName = 'pmov%s_combined.sas7bdat' % self.pmeta['pmovDsId']
       pmovDsPath = '%s/%s' % (pmovLib, pmovDsName)
-      if os.path.exists(pmovDsPath):        
+      if os.path.exists(pmovDsPath):
         lastPutStamp = os.path.getmtime(pmovDsPath)
         lastPut = datetime.datetime.fromtimestamp(lastPutStamp)
         today = datetime.datetime.today()
@@ -324,18 +380,28 @@ class WcResolveUnit(AppResolveUnit):
 	# TRANSFORM_SAS
 	# ---------------------------------------------------------------#
   def TRANSFORM_SAS(self):
+    self.transformSas()
+    return self.state
 
+	# -------------------------------------------------------------- #
+	# transformSas
+	# ---------------------------------------------------------------#
+  def transformSas(self):  
+    self.method = 'wcInputPrvdr.WcResolvar.transformSas'  
     sasPrgm = 'wcInputXml2Sas.sas'
     logfile = 'log/wcInputXml2Sas.log'
-    cwd = self.pmeta['progLib']
-    sysArgs = ['sas','-sysin',sasPrgm,'-log',logfile,'-logparm','open=replace']
+    progLib = self.pmeta['progLib']
+    sysArgs = ['sas','-sysin',sasPrgm,'-altlog',logfile]
 
     logger.info('run wcInputXml2Sas.sas in subprocess ...')
-    self.runProcess(sysArgs,cwd=cwd)
+    try:
+      self.runProcess(sysArgs,cwd=progLib)
+    except Exception as ex:
+      self.newMail('ERR2',sasPrgm,logfile,progLib)
+      raise
     self.state.hasNext = False
     self.state.complete = True
     self.state.hasSignal = True
-    return self.state
     
 # -------------------------------------------------------------- #
 # WcScriptPrvdr
@@ -353,30 +419,51 @@ class WcScriptPrvdr(SasScriptPrvdr):
   # ---------------------------------------------------------------#
   def __call__(self):
     self.pmeta = self.getProgramMeta()
-    dbKey = 'TSXREF|' + self.caller
+    self.method = 'wcInputPrvdr.WcScriptPrvdr.__call__'
     try:
+      self.compileScript('wcInputXml2Sas.sas')
+    except Exception as ex:
+      self.newMail('ERR1','compile script error',str(ex))
+      raise
+    try:
+      dbKey = 'TSXREF|' + self.caller
       tsXref = self._leveldb.Get(dbKey)
+      return (tsXref, self.pmeta)      
     except KeyError:
-      raise Exception('EEOWW! tsXref param not found : ' + dbKey)
-    self.compileScript('wcInputXml2Sas.sas')
-    return (tsXref, self.pmeta)
+      errmsg = 'EEOWW! tsXref param not found : ' + dbKey
+      self.newMail('ERR1','leveldb lookup failed',errmsg)
+      raise Exception(errmsg)
+
+  # -------------------------------------------------------------- #
+  # newMail
+  # ---------------------------------------------------------------#
+  def newMail(self, bodyKey, *args):
+    WcEmailPrvdr.newMail('WcInputPrvdr',bodyKey,self.method,*args)
 
   # -------------------------------------------------------------- #
   # getProgramMeta
   # ---------------------------------------------------------------#
   def getProgramMeta(self):
-    dbKey = 'PMETA|' + self.caller
+    self.method = 'wcInputPrvdr.WcScriptPrvdr.getProgramMeta'
     try:
+      dbKey = 'PMETA|' + self.caller
       pmetadoc = self._leveldb.Get(dbKey)
     except KeyError:
-      raise Exception('EEOWW! pmeta json document not found : ' + dbKey)
-    pmetaAll = json.loads(pmetadoc)
-    pmeta = pmetaAll['WcInputXml2Sas']
-    _globals = pmeta['globals'] # append global vars in this list
-    del(pmeta['globals'])
-    if _globals[0] == '*':
-      pmeta.update(pmetaAll['Global'])
-    else:
-      for item in _globals:
-        pmeta[item] = pmetaAll['Global'][item]
-    return pmeta
+      errmsg = 'EEOWW! pmeta json document not found : ' + dbKey
+      self.newMail('ERR1','leveldb lookup failed',errmsg)
+      raise Exception(errmsg)
+
+    try:
+      pmetaAll = json.loads(pmetadoc)
+      pmeta = pmetaAll['WcInputXml2Sas']
+      _globals = pmeta['globals'] # append global vars in this list
+      del(pmeta['globals'])
+      if _globals[0] == '*':
+        pmeta.update(pmetaAll['Global'])
+      else:
+        for item in _globals:
+          pmeta[item] = pmetaAll['Global'][item]
+      return pmeta
+    except Exception as ex:
+      self.newMail('ERR1','compile pmeta failed',str(ex))
+      raise
