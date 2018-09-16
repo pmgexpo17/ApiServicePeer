@@ -20,7 +20,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 #
-from apiservice import AppDirector, AppResolveUnit, MetaReader, logger
+from apibase import AppDirector, AppResolvar, MetaReader, logger
+from apitools.wcemltn import WcEmailPrvdr
 from flask import Response
 from lxml.etree import XMLParser, ParseError
 import leveldb
@@ -37,15 +38,16 @@ class NormalizeXml(AppDirector):
     super(NormalizeXml, self).__init__(leveldb, jobId)
     self.scaller = caller[0] #scaller, the super program
     self.caller = caller[1]  #caller, the calling program
-    self.appType = 'delegate'
+    self._type = 'delegate'
     self.state.hasNext = True
-    self.resolve = ResolveUnit(leveldb)
+    self.resolve = Resolvar(leveldb)
     self.resolve.state = self.state
 
   # -------------------------------------------------------------- #
   # _start
   # ---------------------------------------------------------------#                                          
   def _start(self):
+    WcEmailPrvdr.subscribe('NormalizeXml')
     metaPrvdr = MetaPrvdr(self._leveldb,self.jobId,self.scaller)
     tsXref, pmeta = metaPrvdr()
     self.dlm = pmeta['delimiter']
@@ -68,16 +70,10 @@ class NormalizeXml(AppDirector):
       self.putApiRequest(201)
 
   # -------------------------------------------------------------- #
-  # onError
-  # ---------------------------------------------------------------#
-  def onError(self, errorMsg):
-    self.putApiRequest(500)
-
-  # -------------------------------------------------------------- #
   # putApiRequest
   # ---------------------------------------------------------------#
   def putApiRequest(self, signal):
-    classRef = 'wcEmltnInputPrvdr:WcEmltnInputPrvdr'
+    classRef = 'wcInputPrvdr:WcInputPrvdr'
     pdata = (self.caller,classRef,json.dumps({'callee':self.jobId,'signal':signal}))
     params = '{"type":"director","id":"%s","service":"%s","args":[],"kwargs":%s}' % pdata
     data = [('job',params)]
@@ -85,10 +81,33 @@ class NormalizeXml(AppDirector):
     response = requests.post(apiUrl,data=data)
     logger.info('api response ' + response.text)
 
+  # -------------------------------------------------------------- #
+  # onError
+  # ---------------------------------------------------------------#
+  def onError(self, ex):
+    # if error is due to delegate failure then don't post an email
+    if self.state.inTransition:
+      self.putApiRequest(500)
+      return
+    # if WcResolvar has caught an exception an error mail is ready to be sent
+    if not WcEmailPrvdr.hasMailReady('NormalizeXml'):
+      method = 'normalizeXml.WcResolvar.' + self.state.current
+      errdesc = 'system error'
+      self.sendMail('ERR1',method,errdesc,str(ex))
+    else:
+      WcEmailPrvdr.sendMail('NormalizeXml')
+    self.putApiRequest(500)
+
+  # -------------------------------------------------------------- #
+  # sendMail
+  # ---------------------------------------------------------------#
+  def sendMail(self,*args):      
+    WcEmailPrvdr.sendMail('NormalizeXml',*args)
+
 # -------------------------------------------------------------- #
-# ResolveUnit
+# Resolvar
 # ---------------------------------------------------------------#
-class ResolveUnit(AppResolveUnit):
+class Resolvar(AppResolvar):
 
   def __init__(self, leveldb):
     self._leveldb = leveldb
@@ -100,25 +119,32 @@ class ResolveUnit(AppResolveUnit):
   # _start
   # ---------------------------------------------------------------#
   def _start(self, tsXref, pmeta):
-    logger.info('[START] NormalizeXml._start')
+    logger.info('normalizeXml.Resolvar._start')
     self.state.current = 'EVAL_XML_SCHEMA'
     self.tsXref = tsXref
     logger.info('tsXref : ' + tsXref)
     self.pmeta = pmeta
     self.checkXmlExists()
+      
+  # -------------------------------------------------------------- #
+  # newMail
+  # ---------------------------------------------------------------#
+  def newMail(self, bodyKey, *args):
+    WcEmailPrvdr.newMail('NormalizeXml',bodyKey,self.method,*args)
 
   # -------------------------------------------------------------- #
   # checkXmlExists
   # ---------------------------------------------------------------#
   def checkXmlExists(self):
-    logger.info('[START] NormalizeXml.checkXmlExists')
+    self.method = 'normalizeXml.Resolvar.checkXmlExists'
+    logger.info('normalizeXml.Resolvar.checkXmlExists')
 
     inputXmlFile = '%s/inputXml/%s' % (self.pmeta['linkBase'],self.pmeta['inputXmlFile'])
     if os.path.exists(inputXmlFile):
       logger.info('wcEmulation inputXmlFile : ' + inputXmlFile)
     else:
       errmsg = 'wcEmulation inputXmlFile is not found : ' +  inputXmlFile
-      logger.error(errmsg)
+      self.newMail('ERR1','user error',errmsg)
       raise Exception(errmsg)
     self.inputXmlFile = inputXmlFile
 
@@ -126,13 +152,24 @@ class ResolveUnit(AppResolveUnit):
 	# EVAL_XML_SCHEMA
 	# ---------------------------------------------------------------#
   def EVAL_XML_SCHEMA(self):
-    logger.info('state : EVAL_XML_SCHEMA')
-    xmlSchema = '%s/assets/%s' %  (self.pmeta['ciwork'],self.pmeta['xmlSchema'])
+    self.method = 'normalizeXml.Resolvar.evalXmlSchema'
+    try:
+      self.evalXmlSchema(self)
+    except Exception as ex:
+      errdesc = 'xml schema doc : ' + self.xmlSchema
+      self.newMail('ERR1',errdesc,str(ex))
+      raise
+      
+	# -------------------------------------------------------------- #
+	# evalXmlSchema
+	# ---------------------------------------------------------------#
+  def evalXmlSchema(self):
+    self.xmlSchema = '%s/assets/%s' % (self.pmeta['ciwork'],self.pmeta['xmlSchema'])
     self.depth = 0
     self.rowcount = 0
     self.tzrByKey = {}
     tzrByName = {}      
-    with open(xmlSchema,'r') as fhr:
+    with open(self.xmlSchema,'r') as fhr:
       schemaDoc = json.load(fhr)
     tableMap = schemaDoc['tableMap']
     tableDefn = schemaDoc['tableDefn']
@@ -169,7 +206,17 @@ class ResolveUnit(AppResolveUnit):
 	# NORMALIZE_XML
 	# ---------------------------------------------------------------#
   def NORMALIZE_XML(self):
-    logger.info('state : NORMALIZE_XML')
+    try:
+      self.normalizeXml(self)
+    except Exception as ex:
+      errdesc = 'xml input file : ' + self.inputXmlFile
+      self.newMail('ERR1',errdesc,str(ex))
+      raise
+
+	# -------------------------------------------------------------- #
+	# normalizeXml
+	# ---------------------------------------------------------------#
+  def normalizeXml(self):
     parser = XMLParser(target=self, recover=True)
     logger.info('parsing : ' + self.inputXmlFile)
     with open(self.inputXmlFile, 'r') as fhr:
@@ -347,25 +394,46 @@ class MetaPrvdr(MetaReader):
   # ---------------------------------------------------------------#
   def __call__(self):
     pmeta = self.getProgramMeta()
-    dbKey = 'TSXREF|' + self.scaller
+    self.method = 'normalizeXml.MetaPrvdr.__call__'
     try:
+      dbKey = 'TSXREF|' + self.scaller
       tsXref = self._leveldb.Get(dbKey)
+      return (tsXref, pmeta)
     except KeyError:
-      raise Exception('EEOWW! tsXref param not found : ' + dbKey)
-    return (tsXref, pmeta)
+      errmsg = 'EEOWW! tsXref param not found : ' + dbKey
+      self.newMail('ERR1','leveldb lookup failed',errmsg)
+      raise Exception
+
+  # -------------------------------------------------------------- #
+  # newMail
+  # ---------------------------------------------------------------#
+  def newMail(self, bodyKey, *args):
+    WcEmailPrvdr.newMail('NormalizeXml',bodyKey,self.method,*args)
 
   # -------------------------------------------------------------- #
   # getProgramMeta
   # ---------------------------------------------------------------#
   def getProgramMeta(self):
-    dbKey = 'PMETA|' + self.scaller
-    pmetaAll = self.restoreMeta(dbKey)
-    pmeta = pmetaAll['NormalizeXml']
-    _globals = pmeta['globals'] # append global vars in this list
-    del(pmeta['globals'])
-    if _globals[0] == '*':
-      pmeta.update(pmetaAll['Global'])
-    else:
-      for item in _globals:
-        pmeta[item] = pmetaAll['Global'][item]
-    return pmeta
+    self.method = 'normalizeXml.MetaPrvdr.getProgramMeta'
+    try:
+      dbKey = 'PMETA|' + self.scaller
+      pmetadoc = self._leveldb.Get(dbKey)
+    except KeyError:
+      errmsg = 'EEOWW! pmeta json document not found : ' + dbKey
+      self.newMail('ERR1','leveldb lookup failed',errmsg)
+      raise Exception(errmsg)
+
+    try:
+      pmetaAll = json.loads(pmetadoc)
+      pmeta = pmetaAll['NormalizeXml']
+      _globals = pmeta['globals'] # append global vars in this list
+      del(pmeta['globals'])
+      if _globals[0] == '*':
+        pmeta.update(pmetaAll['Global'])
+      else:
+        for item in _globals:
+          pmeta[item] = pmetaAll['Global'][item]
+      return pmeta
+    except Exception as ex:
+      self.newMail('ERR1','compile pmeta failed',str(ex))
+      raise
