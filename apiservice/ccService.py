@@ -20,9 +20,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 #
-from apiservice import (AppDirector, AppState, AppResolvar, AppListener,
+from apibase import (AppDirector, AppState, AppResolvar, AppListener,
   SasScriptPrvdr, SysCmdUnit, logger)
-from apitools import CcEmailPrvdr
+from apitools.cc import CcEmailPrvdr
 import datetime
 from threading import RLock
 import logging
@@ -395,3 +395,4 @@ class CcScriptPrvdr(SasScriptPrvdr, SysCmdUnit):
     credentials = username + ':' + password
     self._leveldb.Put(dbKey,credentials)
     self.uid = username
+    
