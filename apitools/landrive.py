@@ -99,8 +99,7 @@ class LandrivePrvdr(object):
     
 if __name__ == '__main__':
   runDir = os.environ['HOME'] + '/.webapi'  
-  localPath = '//int.corp.sun/GroupData/actuary/rateengn/Commercial/workerscomp/emulation/pm/devApps/csvChecker'
-  #localPath = '//int.corp.sun/GroupData/actuary/PiDevApps/CsvCheckerApi'
+  localPath = <local_path>
   mountPath = 'apiServicePeer'
   landriver = LandrivePrvdr(localPath, mountPath, runDir)
   landriver.mount()
