@@ -51,27 +51,66 @@ class ApiAgent(object):
 	# -------------------------------------------------------------- #
 	# run
 	# ---------------------------------------------------------------#
-  def run(self, serviceReg, jobPath):
+  def run(self):
     
-    with ApiAgent._lock:
-      if jobPath:
-        self.submitJob(serviceReg, jobPath)
-      else:
-        self._run(serviceReg)
+    self.start()
+    self._isRunning = self.isRunning()
+    self._run()
+
+	# -------------------------------------------------------------- #
+	# start
+	# ---------------------------------------------------------------#
+  def start(self):
+    
+    parser = OptionParser()
+    parser.add_option("-s", "--submit-job", dest="jobPath",
+                  help="submit a webapi smart job", default=None)
+    parser.add_option("-r", "--reload-module", dest="metaPath",
+                  help="reload a service module", default=None)
+    (options, args) = parser.parse_args()      
+
+    if len(args) != 1:
+      errmsg = 'wrong args count. apiAgent expects 1 argument : service name'
+      logger.error(errmsg)
+      raise Exception(errmsg)
+  
+    try:
+      regFile = apiBase + '/apiservices.json'
+      with open(regFile,'r') as fhr:
+        register = json.load(fhr)
+    except (IOError, ValueError) as ex:
+      logger('failed loading service register : ' + str(ex))
+      raise
+      
+    serviceName = args[0]
+      
+    try:
+      register[serviceName]
+    except KeyError:
+      errmsg = 'service name is not registered : ' + serviceName
+      logger.error(errmsg)
+      raise Exception(errmsg)
+
+    self.jobPath = options.jobPath
+    self.metaPath = options.metaPath  
+    self.service = register[serviceName]
+    self.domain = register['domain'][serviceName]
+    self.smartJob = register['smartJob'][serviceName]
+    self.serviceName = serviceName
 
 	# -------------------------------------------------------------- #
 	# isRunning
 	# ---------------------------------------------------------------#
-  def isRunning(self, serviceReg):
+  def isRunning(self):
 
     try:
-      response = requests.get('http://%s/api/v1/ping' % serviceReg['domain'])
+      response = requests.get('http://%s/api/v1/ping' % self.domain)
       result = json.loads(response.text)
       if result['status'] == 200:
-        logmsg = 'csvChecker api service is already running, pid : %d' % result['pid']
+        logmsg = 'webapi service is running, pid : %d' % result['pid']
         logger.info(logmsg)
       else:
-        logmsg = 'csvChecker api service is not available, status : %d' % result['status']
+        logmsg = 'webapi service is not available, status : %d' % result['status']
         logger.info(logmsg)
     except requests.exceptions.RequestException as ex:
       if 'Errno 111' in ex.__repr__():
@@ -81,87 +120,55 @@ class ApiAgent(object):
 	# -------------------------------------------------------------- #
 	# _run
 	# ---------------------------------------------------------------#
-  def _run(self, serviceReg):
+  def _run(self):
 
     from apibase import ApiPeer
-    
-    if self.isRunning(serviceReg):
-      ApiPeer.appPrvdr.register(serviceReg['service'])
-      return 
 
-    logger.info('### starting %s api service ###' % serviceName)    
-    try:
-      ApiPeer._make(apiBase, serviceReg['service'])
-      apiPeer = ApiPeer._start(serviceReg['domain'])
-      apiPeer.start()
-    except KeyboardInterrupt:
-      apiPeer.stop()
+    if self._isRunning:
+      if self.jobPath:
+        ApiPeer.appPrvdr.register(self.service)
+        self.submitJob()
+      elif options.metaPath:
+        ApiPeer.appPrvdr._reload()
+        #self.reloadModule(serviceReg, options.metaPath)
+    else:
+      if self.jobPath:
+        errmsg = 'job submission failed, api host is not started'
+        logger.error(errmsg)
+        raise Exception(errmsg)
+      elif self.metaPath:
+        errmsg = 'module reload failed, api host is not started'
+        logger.error(errmsg)
+        raise Exception(errmsg)
 
+      logger.info('### starting %s api service ###' % self.serviceName)    
+      try:
+        ApiPeer._make(apiBase, self.service)
+        apiPeer = ApiPeer._start(self.domain)
+        apiPeer.start()
+      except KeyboardInterrupt:
+        apiPeer.stop()
 
 	# -------------------------------------------------------------- #
 	# submitJob
 	# ---------------------------------------------------------------#
-  def submitJob(self, serviceReg, jobPath):
-    if not self.isRunning(serviceReg):
-      logger.error('job submission requires the api be running aleady')
-      return
-      
-    with open(jobPath + '/ccPmeta.json') as pmeta:
+  def submitJob(self):
+    smartJob, pmetaJson = self.smartJob
+    with open(jobPath + '/' + pmetaJson) as pmeta:
       _pmeta = pmeta.read()
-    data = [('job',serviceReg['smartJob']),('pmeta',_pmeta)]
-    apiUrl = 'http://%s/api/v1/smart' % serviceReg['domain']
+    data = [('job',smartJob),('pmeta',_pmeta)]
+    apiUrl = 'http://%s/api/v1/smart' % self.domain
     response = requests.post(apiUrl,data=data)
     logger.info('api response ' + response.text)
-    
-# -------------------------------------------------------------- #
-# _start_
-# ---------------------------------------------------------------#
-def _start_():
-
-  parser = OptionParser()
-  parser.add_option("-s", "--submit-job", dest="jobPath",
-                  help="submit a csvchecker job", default=None)
-  (options, args) = parser.parse_args()
-  
-  if len(args) != 1:
-    errmsg = 'wrong args count. apiAgent expects 1 argument : service name'
-    logger.error(errmsg)
-    raise Exception(errmsg)
-
-  try:
-    regFile = apiBase + '/apiservices.json'
-    with open(regFile,'r') as fhr:
-      register = json.load(fhr)
-  except IOError as ex:
-    logger('failed loading service register : ' + str(ex))
-    raise
-    
-  global serviceName
-  serviceName = args[0].lower()
-    
-  try:
-    register[serviceName]
-  except KeyError:
-    errmsg = 'service name is not registered : ' + serviceName
-    logger.error(errmsg)
-    raise Exception(errmsg)
-
-  _register = {}
-  _register['service'] = register[serviceName]
-  _register['domain'] = register['domain'][serviceName]
-  _register['smartJob'] = register['smartJob'][serviceName]
-  
-  return (_register, options)
   
 if __name__ == '__main__':
 
-  serviceReg, options = _start_()
-  
-  activate_this = '%s/bin/activate_this.py' % apiBase
-  execfile(activate_this, dict(__file__=activate_this))
+  with ApiAgent._lock:
     
-  import requests
+    activate_this = '%s/bin/activate_this.py' % apiBase
+    execfile(activate_this, dict(__file__=activate_this))
+    
+    import requests
 
-  ApiAgent = ApiAgent()
-  ApiAgent.run(serviceReg, options.jobPath)
-  
+    ApiAgent = ApiAgent()
+    ApiAgent.run()
