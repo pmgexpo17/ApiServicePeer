@@ -116,7 +116,20 @@ class SyncJob(Resource):
     else:
       return {'status':400,'error':"form parameter 'job' not found"}, 400
 
-# adds a new program job item, and runs it (TO DO: at the datetime specified)
+# update a service module
+class ReloadService(Resource):
+
+  def post(self, serviceName):
+    setPrvdr()
+    logger.info('service name : ' + str(serviceName))
+    try:      
+      response = g.prvdr._reload(serviceName)
+    except Exception as ex:
+      return {'status':500,'error':str(ex)}, 500
+    else:
+      return {'status':201,'service':serviceName}, 201
+
+# ping to test if server is up
 class Ping(Resource):
 
   def get(self):
@@ -175,6 +188,7 @@ class ApiPeer(object):
     flaskApi.add_resource(SmartJob, '/api/v1/smart')
     flaskApi.add_resource(AsyncJob, '/api/v1/async/<jobRange>')
     flaskApi.add_resource(SyncJob, '/api/v1/sync')
+    flaskApi.add_resource(ReloadService, '/api/v1/reload/<serviceName>')
     flaskApi.add_resource(Ping, '/api/v1/ping')
 
     from cheroot.wsgi import PathInfoDispatcher
@@ -183,4 +197,3 @@ class ApiPeer(object):
     hostName, port = domain.split(':')
     wsgiapp = PathInfoDispatcher({'/': flask})
     return wsgiserver((hostName, int(port)), wsgiapp)
-        
