@@ -162,7 +162,15 @@ class AppProvider(object):
         jobId = str(uuid.uuid4())
       # a new program, either a sync director or async delegate
       return self.addActor(params,jobId)
-        
+
+  # -------------------------------------------------------------- #
+  # _reload
+  # ---------------------------------------------------------------#
+  def _reload(self, serviceName):
+    
+    with self.lock:
+      reload(serviceName)
+            
   # -------------------------------------------------------------- #
   # resolve
   # ---------------------------------------------------------------#
@@ -215,7 +223,8 @@ class AppProvider(object):
   # register
   # ---------------------------------------------------------------#
   def register(self, serviceRef):
-    self.registry.load(serviceRef)
+    with self.lock:
+      self.registry.load(serviceRef)
 
 # -------------------------------------------------------------- #
 # ServiceRegister
@@ -289,4 +298,3 @@ class Despatch(object):
   
     delegate(*argv, **kwargs)
     self.appPrvdr.evalComplete(delegate, jobId)
-    
