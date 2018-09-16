@@ -1,0 +1,84 @@
+{
+  "ApiCore": {
+    "RepoMap": {
+      "apibase": [
+        "apibase", 
+        "apiPeer.py", 
+        "appDirector.py", 
+        "appProvider.py", 
+        "__init__.py"
+      ], 
+      "apitools": [
+        "apitools", 
+        "__init__.py"
+      ], 
+      "jobstore": [
+        "jobstore", 
+        "leveldbJobStore.py", 
+        "__init__.py"
+      ], 
+      "root": [
+        ".", 
+        "apiAgent.py", 
+        "apiservices.json", 
+        "requirements.txt"
+      ]
+    }
+  }, 
+  "ApiPlan": [
+    "root|%s", 
+    "apibase|%s/apibase", 
+    "apiservice|%s/apiservice", 
+    "apitools|%s/apitools", 
+    "jobstore|%s/jobstore", 
+    "leveldb|%s/leveldb", 
+    "log|%s/log"
+  ], 
+  "ApiRoot": "/apps/dev1/webapi", 
+  "Domain": {
+    "csvChecker": "localhost:5000", 
+  }, 
+  "Installed": [
+    "ApiCore", 
+    "wcEmulation", 
+    "csvChecker"
+  ], 
+  "PipEnv": [
+    "PIP_INDEX_URL|http://<pip_repo>", 
+    "PIP_TRUSTED_HOST|<pypi_host>"
+  ], 
+  "RepoName": {
+    "ApiCore": "ApiCore", 
+    "csvChecker": "CsvCheckerApi"
+  }, 
+  "Services": [
+    "csvChecker"
+  ], 
+  "csvChecker": {
+    "ApiPlan": [
+      "cctools|%s/apitools/cc"
+    ], 
+    "RepoMap": {
+      "apiservice": [
+        "apiservice", 
+        "*.*"
+      ], 
+      "assets": [
+        "assets", 
+        "*.*"
+      ], 
+      "cctools": [
+        "apitools/cc", 
+        "*.*"
+      ], 
+      "sasautos": [
+        "sasautos/csvcheck", 
+        "*.*"
+      ]
+    }, 
+    "SysPlan": [
+      "assets|<assets_path>/assets", 
+      "sasautos|<sasautos_path>/sasautos"
+    ]
+  }
+}
