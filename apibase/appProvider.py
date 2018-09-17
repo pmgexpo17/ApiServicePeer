@@ -287,8 +287,9 @@ class ServiceRegister(object):
     except KeyError as ex:
       return ({'status':400,'errdesc':'KeyError','error':str(ex)}, 400)
     # reduce moduleName to the related fileName for storage
-    reload(sys.modules[moduleName])
     _module = moduleName.split('.')[-1]
+    self._modules[_module] = None
+    reload(sys.modules[moduleName])    
     logger.info('%s is reloaded as : %s' % (moduleName, _module))
     self._modules[_module] = __import__(moduleName, fromlist=[fromList])
     return ({'status':201,'service':serviceName,'module':moduleName}, 201)
