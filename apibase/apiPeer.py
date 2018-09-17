@@ -36,6 +36,8 @@ def setPrvdr():
 parser = reqparse.RequestParser()
 parser.add_argument('job')
 parser.add_argument('pmeta')
+parser.add_argument('service')
+parser.add_argument('module')
 
 # promotes a smart, ie, stateful long running job
 class SmartJob(Resource):
@@ -117,17 +119,52 @@ class SyncJob(Resource):
       return {'status':400,'error':"form parameter 'job' not found"}, 400
 
 # update a service module
-class ReloadService(Resource):
+class ServiceManager(Resource):
 
-  def post(self, serviceName):
+  # GET: get the service load status
+  def get(self, serviceName):
     setPrvdr()
-    logger.info('service name : ' + str(serviceName))
-    try:      
-      response = g.prvdr._reload(serviceName)
+    try:
+      return g.prvdr.getLoadStatus(serviceName), 200
     except Exception as ex:
       return {'status':500,'error':str(ex)}, 500
+
+  # POST: reload a service module
+  def post(self, serviceName):
+    setPrvdr()
+    args = parser.parse_args()
+    logger.info('args : ' + str(args))
+    if args['module']:
+      moduleName = args['module']
+      logger.info('service, module : %s, %s' % (serviceName, moduleName))
+      try:      
+        response, rcode = g.prvdr.reloadModule(serviceName, moduleName)
+      except Exception as ex:
+        return {'status':500,'error':str(ex)}, 500
+      else:
+        return response, rcode
     else:
-      return {'status':201,'service':serviceName}, 201
+      return {'status':400,'error':"form parameter 'module' not found"}, 400
+    
+  # PUT : load all service modules
+  def put(self, serviceName):
+    setPrvdr()
+    args = parser.parse_args()
+    logger.info('args : ' + str(args))
+    if args['service']:
+      try:
+        serviceRef = json.loads(args['service'])
+      except ValueError as ex:
+        return {'status':400,'error':str(ex),'context':'json parse'}, 400
+      logger.info('service : ' + str(serviceRef))
+      try:      
+        g.prvdr.loadService(serviceName, serviceRef)
+      except Exception as ex:
+        return {'status':500,'error':str(ex)}, 500
+      else:
+        return {'status':201,'service':serviceName}, 201
+    else:
+      return {'status':400,'error':"form parameter 'service' not found"}, 400
 
 # ping to test if server is up
 class Ping(Resource):
@@ -157,7 +194,7 @@ class ApiPeer(object):
   appPrvdr = None
   
   @staticmethod
-  def _make(apiBase, serviceRef):
+  def _make(apiBase, serviceName, serviceRef):
     
     global logger
     logger = logging.getLogger('apscheduler')
@@ -175,7 +212,7 @@ class ApiPeer(object):
 
     dbPath = apiBase + '/leveldb'
     ApiPeer.appPrvdr = AppProvider.connect(dbPath)    
-    ApiPeer.appPrvdr.register(serviceRef)
+    ApiPeer.appPrvdr.loadService(serviceName, serviceRef)
     
   @staticmethod
   def _start(domain, app_config=None):
@@ -188,7 +225,7 @@ class ApiPeer(object):
     flaskApi.add_resource(SmartJob, '/api/v1/smart')
     flaskApi.add_resource(AsyncJob, '/api/v1/async/<jobRange>')
     flaskApi.add_resource(SyncJob, '/api/v1/sync')
-    flaskApi.add_resource(ReloadService, '/api/v1/reload/<serviceName>')
+    flaskApi.add_resource(ServiceManager, '/api/v1/service/<serviceName>')
     flaskApi.add_resource(Ping, '/api/v1/ping')
 
     from cheroot.wsgi import PathInfoDispatcher
