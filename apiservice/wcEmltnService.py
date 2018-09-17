@@ -77,7 +77,7 @@ class WcDirector(AppDirector):
   def putApiRequest(self):
     
     if self.state.transition == 'XML_TO_SAS':
-      classRef = 'wcEmltnInputPrvdr:WcEmltnInputPrvdr'
+      classRef = 'wcInputPrvdr:WcInputPrvdr'
       pdata = (classRef,self.jobId)
       params = '{"type":"director","id":null,"service":"%s","args":[],"caller":"%s"}' % pdata
       data = [('job',params)]
@@ -161,7 +161,7 @@ class WcResolvar(AppResolvar):
   # _start
   # ---------------------------------------------------------------#                                          
   def _start(self, pmeta):
-    logger.info('[START] landriveMount')    
+    logger.info('wcService.WcResolvar._start')    
     self.state.current = 'XML_TO_SAS'
     self.pmeta = pmeta
 
