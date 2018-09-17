@@ -27,7 +27,7 @@ from threading import RLock
 import json
 import logging
 import leveldb
-import os
+import os, sys
 import uuid
 
 # ---------------------------------------------------------------------------#
@@ -47,10 +47,12 @@ class AppProvider(object):
   _lock = RLock()
   
   @staticmethod
-  def connect(dbPath):
+  def connect(dbPath=None):
     with AppProvider._lock:
       if AppProvider._singleton is not None:
         return AppProvider._singleton
+      if not dbPath:
+        raise Exception("dbPath must be defined for AppProvider startup")
       return AppProvider.start(dbPath)
   
   @staticmethod
@@ -164,14 +166,6 @@ class AppProvider(object):
       return self.addActor(params,jobId)
 
   # -------------------------------------------------------------- #
-  # _reload
-  # ---------------------------------------------------------------#
-  def _reload(self, serviceName):
-    
-    with self.lock:
-      reload(serviceName)
-            
-  # -------------------------------------------------------------- #
   # resolve
   # ---------------------------------------------------------------#
   def resolve(self, _params):
@@ -220,11 +214,27 @@ class AppProvider(object):
     self.db.Delete(dbKey)
 
   # -------------------------------------------------------------- #
-  # register
+  # getLoadStatus
   # ---------------------------------------------------------------#
-  def register(self, serviceRef):
+  def getLoadStatus(self, serviceName):
     with self.lock:
-      self.registry.load(serviceRef)
+      if self.registry.isLoaded(serviceName):
+        return {'status':200,'loaded':True}
+      return {'status':200,'loaded':False}
+
+  # -------------------------------------------------------------- #
+  # loadService
+  # ---------------------------------------------------------------#
+  def loadService(self, serviceName, serviceRef):
+    with self.lock:
+      self.registry.loadModules(serviceName, serviceRef)
+
+  # -------------------------------------------------------------- #
+  # reloadModule
+  # ---------------------------------------------------------------#
+  def reloadModule(self, serviceName, moduleName):
+    with self.lock:
+      return self.registry.reloadModule(serviceName, moduleName)
 
 # -------------------------------------------------------------- #
 # ServiceRegister
@@ -233,19 +243,59 @@ class ServiceRegister(object):
 
   def __init__(self):
     self._modules = {}
+    self._services = {}
+    
+  # ------------------------------------------------------------ #
+  # isLoaded
+  # -------------------------------------------------------------#
+  def isLoaded(self, serviceName):
+    try:
+      self._services[serviceName]
+    except KeyError:
+      return False
+    else:
+      return True
 
-  def load(self, serviceRef):
-    for module in serviceRef:
-      self.loadModule(module['name'], module['fromList'])
+  # ------------------------------------------------------------ #
+  # loadModules
+  # -------------------------------------------------------------#
+  def loadModules(self, serviceName, serviceRef):
+    self._services[serviceName] = {}
+    for module in serviceRef:      
+      self.loadModule(serviceName, module['name'], module['fromList'])
 
-  def loadModule(self, moduleName, fromList):
+  # ------------------------------------------------------------ #
+  # loadModu
+  # -------------------------------------------------------------#
+  def loadModule(self, serviceName, moduleName, fromList):    
     try:
       self._modules[moduleName]
     except KeyError:
+      self._services[serviceName][moduleName] = fromList
+      # reduce moduleName to the related fileName for storage
       _module = moduleName.split('.')[-1]
       logger.info('%s is loaded as : %s' % (moduleName, _module))
       self._modules[_module] = __import__(moduleName, fromlist=[fromList])
 
+  # ------------------------------------------------------------ #
+  # reloadModule
+  # -------------------------------------------------------------#
+  def reloadModule(self, serviceName, moduleName):
+    try:
+      serviceRef = self._services[serviceName]
+      fromList = serviceRef[moduleName]
+    except KeyError as ex:
+      return ({'status':400,'errdesc':'KeyError','error':str(ex)}, 400)
+    # reduce moduleName to the related fileName for storage
+    reload(sys.modules[moduleName])
+    _module = moduleName.split('.')[-1]
+    logger.info('%s is reloaded as : %s' % (moduleName, _module))
+    self._modules[_module] = __import__(moduleName, fromlist=[fromList])
+    return ({'status':201,'service':serviceName,'module':moduleName}, 201)
+
+  # ------------------------------------------------------------ #
+  # getClassName
+  # -------------------------------------------------------------#
   def getClassName(self, classRef):
 
     if ':' not in classRef:
