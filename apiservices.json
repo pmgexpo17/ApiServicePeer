@@ -3,7 +3,7 @@
     "csvchecker": "localhost:5000"
   },
   "smartJob": {
-    "csvchecker" : "{\"service\":\"ccService:CcDirector\",\"type\":\"director\",\"id\":null}"
+    "csvChecker" : [{"service":"ccService:CcDirector","type":"director","id":null},"ccPmeta.json"],
   },
   "csvchecker": [
     {"name":"apiservice.ccService",
