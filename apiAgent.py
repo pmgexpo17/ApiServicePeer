@@ -20,14 +20,20 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 #
+import os
+
+apiBase = os.path.dirname(os.path.realpath(__file__))
+activate_this = '%s/bin/activate_this.py' % apiBase
+execfile(activate_this, dict(__file__=activate_this))
+
 import logging
-import os, sys, time
+import sys
 import json
+import requests
+from apibase import ApiPeer
 from optparse import OptionParser
 from subprocess import call as subcall
 from threading import RLock
-
-apiBase = os.path.dirname(os.path.realpath(__file__))
 
 logger = logging.getLogger('apiagent')
 logFormat = '%(levelname)s:%(asctime)s %(message)s'
@@ -64,9 +70,9 @@ class ApiAgent(object):
     
     parser = OptionParser()
     parser.add_option("-s", "--submit-job", dest="jobPath",
-                  help="submit a webapi smart job", default=None)
-    parser.add_option("-r", "--reload-module", dest="metaPath",
-                  help="reload a service module", default=None)
+                  help="submit a webapi smart job", default='')
+    parser.add_option("-r", "--reload-module", dest="moduleName",
+                  help="reload a service module", default='')
     (options, args) = parser.parse_args()      
 
     if len(args) != 1:
@@ -79,7 +85,7 @@ class ApiAgent(object):
       with open(regFile,'r') as fhr:
         register = json.load(fhr)
     except (IOError, ValueError) as ex:
-      logger('failed loading service register : ' + str(ex))
+      logger.error('failed loading service register : ' + str(ex))
       raise
       
     serviceName = args[0]
@@ -92,7 +98,7 @@ class ApiAgent(object):
       raise Exception(errmsg)
 
     self.jobPath = options.jobPath
-    self.metaPath = options.metaPath  
+    self.moduleName = options.moduleName
     self.service = register[serviceName]
     self.domain = register['domain'][serviceName]
     self.smartJob = register['smartJob'][serviceName]
@@ -116,34 +122,69 @@ class ApiAgent(object):
       if 'Errno 111' in ex.__repr__():
         return False
     return True        
+
+	# -------------------------------------------------------------- #
+	# isLoaded
+	# ---------------------------------------------------------------#
+  def isLoaded(self):
+    
+    apiUrl = 'http://%s/api/v1/service/%s'
+    response = requests.get(apiUrl % (self.domain, self.serviceName))
+    return json.loads(response.text)['loaded']
+
+	# -------------------------------------------------------------- #
+	# loadService
+	# ---------------------------------------------------------------#
+  def loadService(self):
+    
+    apiUrl = 'http://%s/api/v1/service/%s'
+    apiUrl = apiUrl % (self.domain, self.serviceName)
+    data = [('service',json.dumps(self.service))]
+    response = requests.put(apiUrl,data=data)
+    logger.info('api response ' + response.text)
+
+	# -------------------------------------------------------------- #
+	# reloadModule
+	# ---------------------------------------------------------------#
+  def reloadModule(self):
+    
+    apiUrl = 'http://%s/api/v1/service/%s'
+    apiUrl = apiUrl % (self.domain, self.serviceName)
+    data = [('module',self.moduleName)]
+    response = requests.post(apiUrl,data=data)
+    logger.info('api response ' + response.text)
       
 	# -------------------------------------------------------------- #
 	# _run
 	# ---------------------------------------------------------------#
   def _run(self):
-
-    from apibase import ApiPeer
-
+    
     if self._isRunning:
       if self.jobPath:
-        ApiPeer.appPrvdr.register(self.service)
+        if not self.isLoaded():
+          logger.info('### registering service : %s ###' % self.serviceName)
+          self.loadService()
+        else:
+          logger.info('service is loaded : ' + self.serviceName)
+        logger.info('### submitting %s job ###' % self.serviceName)
         self.submitJob()
-      elif options.metaPath:
-        ApiPeer.appPrvdr._reload()
-        #self.reloadModule(serviceReg, options.metaPath)
+      elif self.moduleName:
+        logmsg = '### reloading service module : %s, %s ###'
+        logger.info(logmsg % (self.serviceName, self.moduleName))
+        self.reloadModule()
     else:
       if self.jobPath:
         errmsg = 'job submission failed, api host is not started'
         logger.error(errmsg)
         raise Exception(errmsg)
-      elif self.metaPath:
+      elif self.moduleName:
         errmsg = 'module reload failed, api host is not started'
         logger.error(errmsg)
         raise Exception(errmsg)
 
       logger.info('### starting %s api service ###' % self.serviceName)    
       try:
-        ApiPeer._make(apiBase, self.service)
+        ApiPeer._make(apiBase, self.serviceName, self.service)
         apiPeer = ApiPeer._start(self.domain)
         apiPeer.start()
       except KeyboardInterrupt:
@@ -154,9 +195,9 @@ class ApiAgent(object):
 	# ---------------------------------------------------------------#
   def submitJob(self):
     smartJob, pmetaJson = self.smartJob
-    with open(jobPath + '/' + pmetaJson) as pmeta:
+    with open(self.jobPath + '/' + pmetaJson) as pmeta:
       _pmeta = pmeta.read()
-    data = [('job',smartJob),('pmeta',_pmeta)]
+    data = [('job',json.dumps(smartJob)),('pmeta',_pmeta)]
     apiUrl = 'http://%s/api/v1/smart' % self.domain
     response = requests.post(apiUrl,data=data)
     logger.info('api response ' + response.text)
@@ -164,11 +205,6 @@ class ApiAgent(object):
 if __name__ == '__main__':
 
   with ApiAgent._lock:
-    
-    activate_this = '%s/bin/activate_this.py' % apiBase
-    execfile(activate_this, dict(__file__=activate_this))
-    
-    import requests
 
     ApiAgent = ApiAgent()
     ApiAgent.run()
