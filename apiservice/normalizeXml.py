@@ -139,7 +139,7 @@ class Resolvar(AppResolvar):
     self.method = 'normalizeXml.Resolvar.checkXmlExists'
     logger.info('normalizeXml.Resolvar.checkXmlExists')
 
-    inputXmlFile = '%s/inputXml/%s' % (self.pmeta['linkBase'],self.pmeta['inputXmlFile'])
+    inputXmlFile = self.pmeta['xmlFilePath'] + '/' + self.pmeta['inputXmlFile']
     if os.path.exists(inputXmlFile):
       logger.info('wcEmulation inputXmlFile : ' + inputXmlFile)
     else:
