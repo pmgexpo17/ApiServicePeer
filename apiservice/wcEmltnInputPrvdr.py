@@ -48,6 +48,7 @@ class WcInputPrvdr(AppDirector):
         self.state.transition = 'NA'
         self.state.inTransition = False
       else:
+      	self.state.transition += ':FAILED'
         raise Exception('NORMALISE_XML failed, rc : %d' % signal)
     self.state.current = self.state.next
     return self.state
@@ -88,7 +89,7 @@ class WcInputPrvdr(AppDirector):
   # ---------------------------------------------------------------#
   def onError(self, ex):
     # if error is due to delegate failure then don't post an email
-    if self.state.inTransition:
+    if 'FAILED' in self.state.transition:
       self.putApiRequest(500)
       return
     # if WcResolvar has caught an exception an error mail is ready to be sent
@@ -295,6 +296,7 @@ class WcResolvar(AppResolvar):
     self.state.inTransition = True
     self.state.next = 'IMPORT_TO_SAS'
     self.state.hasNext = True
+    return self.state
   
 	# -------------------------------------------------------------- #
 	# IMPORT_TO_SAS
@@ -327,7 +329,6 @@ class WcResolvar(AppResolvar):
     logger.info('api response ' + response.text)
     self.state.next = 'GET_PMOV_DATA'
     self.state.hasNext = True
-    return self.state
 
 	# -------------------------------------------------------------- #
 	# GET_PMOV_DATA
