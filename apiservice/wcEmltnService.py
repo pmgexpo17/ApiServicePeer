@@ -91,7 +91,7 @@ class WcDirector(AppDirector):
       pdata = (self.jobId,classRef, self.resolve.txnNum)
       params = '{"type":"delegate","id":"%s","service":"%s","args":[%d]}' % pdata
       data = [('job',params)]
-      apiUrl = 'http://localhost:5000/api/v1/async/%d' % self.resolve.sgmtCount
+      apiUrl = 'http://localhost:5000/api/v1/async/%s' % self.resolve.sgmtRange
       response = requests.post(apiUrl,data=data)
       logger.info('api response ' + response.text)
 
@@ -129,181 +129,208 @@ class WcDirector(AppDirector):
 # ---------------------------------------------------------------#
 class WcResolvar(AppResolvar):
   
-  def __init__(self):
-    self.__dict__['XML_TO_SAS'] = self.XML_TO_SAS
-    self.__dict__['GET_TXN_COUNT'] = self.GET_TXN_COUNT
-    self.__dict__['TXN_REPEAT'] = self.TXN_REPEAT
-    self.__dict__['TXN_SGMT_REPEAT'] = self.TXN_SGMT_REPEAT
-    self.__dict__['TXN_SGMT_RESTACK'] = self.TXN_SGMT_RESTACK
-    self.__dict__['TXN_RESTACK'] = self.TXN_RESTACK
-    self.pmeta = None
-    self.sgmtCount = 0
-    self.txnNum = 0  
-    self.txnCount = 0
-
-  # -------------------------------------------------------------- #
-  # newMail
-  # ---------------------------------------------------------------#
-  def newMail(self, bodyKey, *args):
-    WcEmailPrvdr.newMail('WcDirector',bodyKey,self.method,*args)
-
-  # -------------------------------------------------------------- #
-  # XML_TO_SAS - evalTxnCount
-  # - state.current = 'XML_TO_SAS'
-  # - state.next = 'TXN_REPEAT'
-  # ---------------------------------------------------------------#
-  def XML_TO_SAS(self):
-    self.state.transition = 'XML_TO_SAS'
-    self.state.inTransition = True
-    self.state.next = 'GET_TXN_COUNT'
-    self.state.hasNext = True
-    return self.state
-
-  # -------------------------------------------------------------- #
-  # _start
-  # ---------------------------------------------------------------#                                          
-  def _start(self, pmeta):
-    logger.info('wcService.WcResolvar._start')    
-    self.state.current = 'XML_TO_SAS'
-    self.pmeta = pmeta
-    self.method = 'wcService.WcResolvar'
-
-  # -------------------------------------------------------------- #
-  # getTxnCount -
-  # ---------------------------------------------------------------#
-  def getTxnCount(self):
-    sasPrgm = 'batchTxnScheduleWC.sas'
-    logfile = 'log/batchTxnScheduleWC.log'
-    sysArgs = ['sas','-sysin',sasPrgm,'-altlog',logfile]
-    
-    logger.info('run batchTxnScheduleWC.sas in subprocess ...')
-    progLib = self.pmeta['progLib']
-    try:
-      stdout = self.runProcess(sysArgs,cwd=progLib)
-    except Exception:
+	def __init__(self):
+	  self.__dict__['XML_TO_SAS'] = self.XML_TO_SAS
+	  self.__dict__['EVAL_TXN_COUNT'] = self.EVAL_TXN_COUNT
+	  self.__dict__['TXN_REPEAT'] = self.TXN_REPEAT
+	  self.__dict__['EVAL_SGMT_COUNT'] = self.EVAL_SGMT_COUNT
+	  self.__dict__['TXN_SGMT_REPEAT'] = self.TXN_SGMT_REPEAT
+	  self.__dict__['TXN_SGMT_RESTACK'] = self.TXN_SGMT_RESTACK
+	  self.__dict__['TXN_RESTACK'] = self.TXN_RESTACK
+	  self.pmeta = None
+	  self.sgmtCount = 0
+	  self.txnNum = 0  
+	  self.txnCount = 0
+	
+	# -------------------------------------------------------------- #
+	# newMail
+	# ---------------------------------------------------------------#
+	def newMail(self, bodyKey, *args):
+	  WcEmailPrvdr.newMail('WcDirector',bodyKey,self.method,*args)
+	
+	# -------------------------------------------------------------- #
+	# XML_TO_SAS
+	# - state.current = 'XML_TO_SAS'
+	# - state.next = 'TXN_REPEAT'
+	# ---------------------------------------------------------------#
+	def XML_TO_SAS(self):
+	  self.state.transition = 'XML_TO_SAS'
+	  self.state.inTransition = True
+	  self.state.next = 'EVAL_TXN_COUNT'
+	  self.state.hasNext = True
+	  return self.state
+	
+	# -------------------------------------------------------------- #
+	# _start
+	# ---------------------------------------------------------------#                                          
+	def _start(self, pmeta):
+	  logger.info('wcService.WcResolvar._start')    
+	  self.state.current = 'XML_TO_SAS'
+	  self.pmeta = pmeta
+	  self.method = 'wcService.WcResolvar'
+	  self.sgmtCount = 0
+	  self.sgmtStart = 1
+	  self.sgmtEnd = 0
+	
+	# -------------------------------------------------------------- #
+	# evalTxnCount -
+	# ---------------------------------------------------------------#
+	def evalTxnCount(self):
+	  sasPrgm = 'batchTxnScheduleWC.sas'
+	  logfile = 'log/batchTxnScheduleWC.log'
+	  sysArgs = ['sas','-sysin',sasPrgm,'-altlog',logfile]
+	  
+	  logger.info('run batchTxnScheduleWC.sas in subprocess ...')
+	  progLib = self.pmeta['progLib']
+	  try:
+	    stdout = self.runProcess(sysArgs,cwd=progLib)
+	  except Exception:
 			self.newMail('ERR2','restackTxnOutputWC',logfile,progLib)
 			raise
-      
-    logger.info('program output : %s' % stdout)
-    
-    txnPacket = json.loads(stdout)
-    self.txnCount = txnPacket['count']
-    self.txnNum = 0
-
-  # -------------------------------------------------------------- #
-  # GET_TXN_COUNT
-  # - state.next = 'TXN_REPEAT'
-  # ---------------------------------------------------------------#
-  def GET_TXN_COUNT(self):
-    self.getTxnCount()
-    self.state.next = 'TXN_REPEAT'
-    self.state.hasNext = True
-    return self.state
-
-  # -------------------------------------------------------------- #
-  # TXN_REPEAT - evalTxnRepeat
-  # - state.current = 'TXN_REPEAT'
-  # - state.next = 'TXN_SGMT_REPEAT'
-  # ---------------------------------------------------------------#
-  def TXN_REPEAT(self):
-    if self.txnNum == self.txnCount:
-      self.state.next = 'TXN_RESTACK'
-      self.state.hasNext = True
-    else:
-      self.txnNum += 1
-      self.state.next = 'TXN_SGMT_REPEAT'
-      self.state.hasNext = True
-    return self.state
-
-  # -------------------------------------------------------------- #
-  # TXN_RESTACK
-  # - state.next = 'EOP'
-  # ---------------------------------------------------------------#
-  def TXN_RESTACK(self):
-    self.restackTxnOutputAll()
-    self.state.hasNext = False
-    self.state.complete = True
-    return self.state
-
-  # -------------------------------------------------------------- #
-  # restackTxnOutputAll
-  # ---------------------------------------------------------------#
-  def restackTxnOutputAll(self):
-    sasPrgm = 'restackTxnOutputWC.sas'
-    logfile = 'log/restackTxnOutputWC.log'
-    txnCount = str(self.txnCount)
-    sysArgs = ['sas','-sysin',sasPrgm,'-set','txnCount',txnCount,'-altlog',logfile]
-
-    logger.info('run restackTxnOutputWC.sas in subprocess ...')
-    progLib = self.pmeta['progLib']
-    try:
-      self.runProcess(sysArgs,cwd=progLib)
-    except Exception:
+	    
+	  logger.info('program output : %s' % stdout)
+	  
+	  txnPacket = json.loads(stdout)
+	  self.txnCount = txnPacket['count']
+	  self.txnNum = 0
+	
+	# -------------------------------------------------------------- #
+	# EVAL_TXN_COUNT
+	# - state.next = 'TXN_REPEAT'
+	# ---------------------------------------------------------------#
+	def EVAL_TXN_COUNT(self):
+	  self.evalTxnCount()
+	  self.state.next = 'TXN_REPEAT'
+	  self.state.hasNext = True
+	  return self.state
+	
+	# -------------------------------------------------------------- #
+	# TXN_REPEAT - evalTxnRepeat
+	# - state.current = 'TXN_REPEAT'
+	# - state.next = 'TXN_SGMT_REPEAT'
+	# ---------------------------------------------------------------#
+	def TXN_REPEAT(self):
+	  if self.txnNum == self.txnCount:
+	    self.state.next = 'TXN_RESTACK'
+	    self.state.hasNext = True
+	  else:
+	    self.txnNum += 1
+	    self.state.next = 'EVAL_SGMT_COUNT'
+	    self.state.hasNext = True
+	  return self.state
+	
+	# -------------------------------------------------------------- #
+	# TXN_RESTACK
+	# - state.next = 'EOP'
+	# ---------------------------------------------------------------#
+	def TXN_RESTACK(self):
+	  self.restackTxnOutputAll()
+	  self.state.hasNext = False
+	  self.state.complete = True
+	  self.state.hasSignal = True
+	  return self.state
+	
+	# -------------------------------------------------------------- #
+	# restackTxnOutputAll
+	# ---------------------------------------------------------------#
+	def restackTxnOutputAll(self):
+	  sasPrgm = 'restackTxnOutputWC.sas'
+	  logfile = 'log/restackTxnOutputWC.log'
+	  txnCount = str(self.txnCount)
+	  sysArgs = ['sas','-sysin',sasPrgm,'-set','txnCount',txnCount,'-altlog',logfile]
+	
+	  logger.info('run restackTxnOutputWC.sas in subprocess ...')
+	  progLib = self.pmeta['progLib']
+	  try:
+	    self.runProcess(sysArgs,cwd=progLib)
+	  except Exception:
 			self.newMail('ERR2','restackTxnOutputWC',logfile,progLib)
 			raise
-
-  # -------------------------------------------------------------- #
-  # TXN_SGMT_REPEAT - evalTxnSgmtRepeat
-  # - state.current = 'TXN_SGMT_REPEAT'
-  # - state.next = 'TXN_SGMT_RESTACK'
-  # ---------------------------------------------------------------#
-  def TXN_SGMT_REPEAT(self):
-    self.state.transition = 'EMLTN_BYSGMT_NOWAIT'
-    self.state.inTransition = True
-    self.state.next = 'TXN_SGMT_RESTACK'
-    self.state.hasNext = True
-    self.getTxnSgmtCount()
-    return self.state
-
-  # -------------------------------------------------------------- #
-  # getTxnSgmtCount
-  # ---------------------------------------------------------------#
-  def getTxnSgmtCount(self):
-    sasPrgm = 'batchScheduleWC.sas'
-    logfile = 'log/batchScheduleWC.log'
-    txnIndex = str(self.txnNum)
-    sysArgs = ['sas','-sysin',sasPrgm,'-set','txnIndex',txnIndex,'-altlog',logfile]
-    
-    logger.info('run batchScheduleWC.sas in subprocess, txn[%d] ...' % self.txnNum)
-    progLib = self.pmeta['progLib']
-    try:
-      stdout = self.runProcess(sysArgs,cwd=progLib)
-    except Exception:
+	
+	# -------------------------------------------------------------- #
+	# EVAL_SGMT_COUNT
+	# ---------------------------------------------------------------#
+	def EVAL_SGMT_COUNT(self):
+		self.evalTxnSgmtCount()
+		self.state.next = 'TXN_SGMT_REPEAT'
+		self.state.hasNext = True
+		return self.state
+	
+	# -------------------------------------------------------------- #
+	# evalTxnSgmtCount
+	# ---------------------------------------------------------------#
+	def evalTxnSgmtCount(self):
+	  sasPrgm = 'batchScheduleWC.sas'
+	  logfile = 'log/batchScheduleWC.log'
+	  txnIndex = str(self.txnNum)
+	  sysArgs = ['sas','-sysin',sasPrgm,'-set','txnIndex',txnIndex,'-altlog',logfile]
+	  
+	  logger.info('run batchScheduleWC.sas in subprocess, txn[%d] ...' % self.txnNum)
+	  progLib = self.pmeta['progLib']
+	  try:
+	    stdout = self.runProcess(sysArgs,cwd=progLib)
+	  except Exception:
 			self.newMail('ERR2','batchScheduleWC.sas',logfile,progLib)
 			raise
-
-    logger.info('program output : %s' % stdout)
-    
-    sgmtPacket = json.loads(stdout)
-    self.sgmtCount = sgmtPacket['count']
-
-  # -------------------------------------------------------------- #
-  # TXN_SGMT_RESTACK - evalRestackSgmtAll
-  # - state.current = 'TXN_SGMT_RESTACK'
-  # - state.next = 'TXN_REPEAT'
-  # ---------------------------------------------------------------#
-  def TXN_SGMT_RESTACK(self):
-    self.state.next = 'TXN_REPEAT'
-    self.restackSgmtOutputAll()
-    self.sgmtCount = 0
-    return self.state
-
-  # -------------------------------------------------------------- #
-  # restackSgmtOutput
-  # ---------------------------------------------------------------#
-  def restackSgmtOutputAll(self):
-    sasPrgm = 'restackSgmtOutputWC.sas'
-    logfile = 'log/restackSgmtOutputWC_txn%d.log' % self.txnNum
-    txnIndex = str(self.txnNum)
-    sgmtCount = str(self.sgmtCount)
-    sysArgs = ['sas','-sysin',sasPrgm,'-set','txnIndex',txnIndex]
-    sysArgs += ['-set','sgmtCount',sgmtCount,'-altlog',logfile]
-    
-    logger.info('run restackSgmtOutputWC.sas in subprocess txn[%d] ...' % self.txnNum)
-    progLib = self.pmeta['progLib']
-    try:
-      self.runProcess(sysArgs,cwd=progLib)
-    except Exception:
+	
+	  logger.info('program output : %s' % stdout)
+	  
+	  sgmtPacket = json.loads(stdout)
+	  self.sgmtCount = sgmtPacket['count']
+	
+	# -------------------------------------------------------------- #
+	# TXN_SGMT_REPEAT - evalTxnSgmtRepeat
+	# - state.current = 'TXN_SGMT_REPEAT'
+	# - state.next = 'TXN_SGMT_RESTACK'
+	# ---------------------------------------------------------------#
+	def TXN_SGMT_REPEAT(self):
+		if self.sgmtEnd == self.sgmtCount:
+		  self.state.next = 'TXN_SGMT_RESTACK'
+		  self.state.hasNext = True
+		else:
+			self.state.transition = 'EMLTN_BYSGMT_NOWAIT'
+			self.state.inTransition = True
+			self.state.next = 'TXN_SGMT_REPEAT'
+			self.state.hasNext = True
+			sgmtDiff = self.sgmtCount - self.sgmtStart
+			sgmtDiff = 6 if sgmtDiff > 6 else sgmtDiff
+			self.sgmtEnd = sgmtEnd = self.sgmtStart + sgmtDiff
+			if self.sgmtEnd == self.sgmtCount:
+			  sgmtEnd += 1
+			self.sgmtRange = '%d-%d' % (self.sgmtStart, sgmtEnd)
+			# advance sgmtStart for next iteration
+			self.sgmtStart += sgmtDiff
+			logmsg = 'for txn[%d], next segment range : %s'
+			logger.info(logmsg % (self.txnNum, self.sgmtRange))
+		return self.state
+	
+	# -------------------------------------------------------------- #
+	# TXN_SGMT_RESTACK - evalRestackSgmtAll
+	# - state.current = 'TXN_SGMT_RESTACK'
+	# - state.next = 'TXN_REPEAT'
+	# ---------------------------------------------------------------#
+	def TXN_SGMT_RESTACK(self):
+	  self.state.next = 'TXN_REPEAT'
+	  self.restackSgmtOutputAll()
+	  self.sgmtCount = 0
+	  return self.state
+	
+	# -------------------------------------------------------------- #
+	# restackSgmtOutput
+	# ---------------------------------------------------------------#
+	def restackSgmtOutputAll(self):
+	  sasPrgm = 'restackSgmtOutputWC.sas'
+	  logfile = 'log/restackSgmtOutputWC_txn%d.log' % self.txnNum
+	  txnIndex = str(self.txnNum)
+	  sgmtCount = str(self.sgmtCount)
+	  sysArgs = ['sas','-sysin',sasPrgm,'-set','txnIndex',txnIndex]
+	  sysArgs += ['-set','sgmtCount',sgmtCount,'-altlog',logfile]
+	  
+	  logger.info('run restackSgmtOutputWC.sas in subprocess txn[%d] ...' % self.txnNum)
+	  progLib = self.pmeta['progLib']
+	  try:
+	    self.runProcess(sysArgs,cwd=progLib)
+	  except Exception:
 			self.newMail('ERR2','restackSgmtOutputWC',logfile,progLib)
 			raise
 
