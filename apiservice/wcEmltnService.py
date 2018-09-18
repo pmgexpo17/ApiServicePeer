@@ -43,6 +43,7 @@ class WcDirector(AppDirector):
         self.state.transition = 'NA'
         self.state.inTransition = False
       else:
+      	self.state.transition += ':FAILED'
         errmsg = 'WcEmltnInputPrvdr failed, returned error signal : %d' % signal
         logger.error(errmsg)
         raise Exception(errmsg)
@@ -53,6 +54,7 @@ class WcDirector(AppDirector):
         self.state.transition = 'NA'
         self.state.inTransition = False
       else:
+      	self.state.transition += ':FAILED'
         errmsg = 'WcEmltnBySgmt failed, returned error signal : %d' % signal
         logger.error(errmsg)
         raise Exception(errmsg)
@@ -106,7 +108,7 @@ class WcDirector(AppDirector):
   # ---------------------------------------------------------------#
   def onError(self, ex):
     # if error is due to delegate failure then don't post an email
-    if self.state.inTransition:
+    if 'FAILED' in self.state.transition:
       return
     # if WcResolvar has caught an exception an error mail is ready to be sent
     if not WcEmailPrvdr.hasMailReady('WcDirector'):
@@ -164,6 +166,7 @@ class WcResolvar(AppResolvar):
     logger.info('wcService.WcResolvar._start')    
     self.state.current = 'XML_TO_SAS'
     self.pmeta = pmeta
+    self.method = 'wcService.WcResolvar'
 
   # -------------------------------------------------------------- #
   # getTxnCount -
@@ -178,8 +181,8 @@ class WcResolvar(AppResolvar):
     try:
       stdout = self.runProcess(sysArgs,cwd=progLib)
     except Exception:
-      self.newMail('ERR2','restackTxnOutputWC',logfile,progLib)
-      raise
+			self.newMail('ERR2','restackTxnOutputWC',logfile,progLib)
+			raise
       
     logger.info('program output : %s' % stdout)
     
@@ -236,8 +239,8 @@ class WcResolvar(AppResolvar):
     try:
       self.runProcess(sysArgs,cwd=progLib)
     except Exception:
-      self.newMail('ERR2','restackTxnOutputWC',logfile,progLib)
-      raise
+			self.newMail('ERR2','restackTxnOutputWC',logfile,progLib)
+			raise
 
   # -------------------------------------------------------------- #
   # TXN_SGMT_REPEAT - evalTxnSgmtRepeat
@@ -266,8 +269,8 @@ class WcResolvar(AppResolvar):
     try:
       stdout = self.runProcess(sysArgs,cwd=progLib)
     except Exception:
-      self.newMail('ERR2','batchScheduleWC',logfile,progLib)
-      raise
+			self.newMail('ERR2','batchScheduleWC.sas',logfile,progLib)
+			raise
 
     logger.info('program output : %s' % stdout)
     
@@ -301,8 +304,8 @@ class WcResolvar(AppResolvar):
     try:
       self.runProcess(sysArgs,cwd=progLib)
     except Exception:
-      self.newMail('ERR2','restackSgmtOutputWC',logfile,progLib)
-      raise
+			self.newMail('ERR2','restackSgmtOutputWC',logfile,progLib)
+			raise
 
 # -------------------------------------------------------------- #
 # WcEmltnBySgmt
@@ -332,14 +335,14 @@ class WcEmltnBySgmt(SysCmdUnit):
       logger.info(logMsg % (txnNum, sgmtNum))
       self.runProcess(sysArgs,cwd=progLib)
     except Exception:
-      self.sendMail(sasPrgm, logfile, progLib)
-      raise
+			self.sendMail(sasPrgm, logfile, progLib)
+			raise
     
   # -------------------------------------------------------------- #
   # newMail
   # ---------------------------------------------------------------#
   def sendMail(self, *args):
-    WcEmailPrvdr.sendMail('WcDirector','ERR2',self.method,*args)
+		WcEmailPrvdr.sendMail('WcDirector','ERR2',self.method,*args)
 
 # -------------------------------------------------------------- #
 # WcListener
