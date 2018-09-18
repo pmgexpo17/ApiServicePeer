@@ -37,21 +37,25 @@
   "ApiRoot": "/apps/dev1/webapi", 
   "Domain": {
     "csvChecker": "localhost:5000", 
+    "wcEmulation": "localhost:5000"
   }, 
   "Installed": [
     "ApiCore", 
+    "wcEmulation", 
     "csvChecker"
   ], 
   "PipEnv": [
-    "PIP_INDEX_URL|http://<pip_repo>", 
-    "PIP_TRUSTED_HOST|<pypi_host>"
+    "PIP_INDEX_URL|<pip_index_url>", 
+    "PIP_TRUSTED_HOST|<pip_host>"
   ], 
   "RepoName": {
     "ApiCore": "ApiCore", 
-    "csvChecker": "CsvCheckerApi"
+    "csvChecker": "CsvCheckerApi", 
+    "wcEmulation": "WcEmltnApi"
   }, 
   "Services": [
-    "csvChecker"
+    "csvChecker", 
+    "wcEmulation"
   ], 
   "csvChecker": {
     "ApiPlan": [
@@ -76,8 +80,50 @@
       ]
     }, 
     "SysPlan": [
-      "assets|<assets_path>/assets", 
-      "sasautos|<sasautos_path>/sasautos"
+      "assets|<assets_lib>", 
+      "sasautos|<sasautos_lib>"
+    ]
+  }, 
+  "wcEmulation": {
+    "ApiPlan": [
+      "wctools|%s/apitools/wcemltn"
+    ], 
+    "RepoMap": {
+      "apiservice": [
+        "apiservice", 
+        "*.*"
+      ], 
+      "assets": [
+        "assets", 
+        "*.*"
+      ], 
+      "calcorder": [
+        "calcorder", 
+        "*.*"
+      ], 
+      "dataprep": [
+        "sasautos/dataprep", 
+        "*.*"
+      ], 
+      "simbatch": [
+        "sasautos/simbatch", 
+        "*.*"
+      ], 
+      "wctools": [
+        "apitools/wcemltn", 
+        "*.*"
+      ], 
+      "wrkcmp": [
+        "sasautos/wrkcmp", 
+        "*.*"
+      ]
+    }, 
+    "SysPlan": [
+      "assets|<assets_lib>", 
+      "calcorder|<calcorder_lib>", 
+      "dataprep|<dataprep_lib>", 
+      "simbatch|<simbatch_lib>", 
+      "wrkcmp|<wrkcmp_lib>"
     ]
   }
 }
