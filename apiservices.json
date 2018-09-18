@@ -1,11 +1,13 @@
 {
   "domain": {
-    "csvchecker": "localhost:5000"
+    "csvChecker": "localhost:5000",
+    "wcEmulation": "localhost:5000"
   },
   "smartJob": {
     "csvChecker" : [{"service":"ccService:CcDirector","type":"director","id":null},"ccPmeta.json"],
+    "wcEmulation" : [{"service":"wcService:WcDirector","type":"director","listener":"wcService:WcListener","id":null},"wcPmeta.json"]
   },
-  "csvchecker": [
+  "csvChecker": [
     {"name":"apiservice.ccService",
 		 "fromList":[
       "CcDirector"
@@ -16,6 +18,30 @@
 		    "CsvChecker",
         "ApplyOracleBySgmt",
         "CcListener"
+		  ]
+	  }
+  ],
+  "wcEmulation": [
+    {"name":"apiservice.wcService",
+		 "fromList":[
+      "WcDirector",
+      "WcListener"
+     ]
+	  },
+	  {"name":"apiservice.wcInputPrvdr",
+		  "fromList":[
+		    "WcInputPrvdr"
+		  ]
+	  },
+	  {"name":"apiservice.normalizeXml",
+		  "fromList":[
+		    "NormalizeXml"
+		  ]
+	  },
+	  {"name":"apiservice.dataTxnPrvdr",
+		  "fromList":[
+		    "DelDataUnit",
+		    "DlmrStreamPrvdr"
 		  ]
 	  }
   ]
