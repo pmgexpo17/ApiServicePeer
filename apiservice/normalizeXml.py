@@ -85,10 +85,6 @@ class NormalizeXml(AppDirector):
   # onError
   # ---------------------------------------------------------------#
   def onError(self, ex):
-    # if error is due to delegate failure then don't post an email
-    if self.state.inTransition:
-      self.putApiRequest(500)
-      return
     # if WcResolvar has caught an exception an error mail is ready to be sent
     if not WcEmailPrvdr.hasMailReady('NormalizeXml'):
       method = 'normalizeXml.WcResolvar.' + self.state.current
@@ -154,9 +150,10 @@ class Resolvar(AppResolvar):
   def EVAL_XML_SCHEMA(self):
     self.method = 'normalizeXml.Resolvar.evalXmlSchema'
     try:
-      self.evalXmlSchema(self)
+      self.evalXmlSchema()
+      return self.state
     except Exception as ex:
-      errdesc = 'xml schema doc : ' + self.xmlSchema
+      errdesc = 'xml schema doc : ' + self.pmeta['xmlSchema']
       self.newMail('ERR1',errdesc,str(ex))
       raise
       
@@ -165,6 +162,7 @@ class Resolvar(AppResolvar):
 	# ---------------------------------------------------------------#
   def evalXmlSchema(self):
     self.xmlSchema = '%s/assets/%s' % (self.pmeta['ciwork'],self.pmeta['xmlSchema'])
+    logger.info('xmlSchema : ' + self.xmlSchema)
     self.depth = 0
     self.rowcount = 0
     self.tzrByKey = {}
@@ -200,14 +198,14 @@ class Resolvar(AppResolvar):
     self.tzrByName = tzrByName
     self.state.next = 'NORMALIZE_XML'
     self.state.hasNext = True
-    return self.state
 
 	# -------------------------------------------------------------- #
 	# NORMALIZE_XML
 	# ---------------------------------------------------------------#
   def NORMALIZE_XML(self):
     try:
-      self.normalizeXml(self)
+      self.normalizeXml()
+      return self.state
     except Exception as ex:
       errdesc = 'xml input file : ' + self.inputXmlFile
       self.newMail('ERR1',errdesc,str(ex))
@@ -234,7 +232,6 @@ class Resolvar(AppResolvar):
     self.state.complete = True
     self.state.hasNext = False
     self.state.hasSignal = True
-    return self.state
 
   # -------------------------------------------------------------- #
   # next
