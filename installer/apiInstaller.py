@@ -275,14 +275,12 @@ class StashApiInstaller(ApiInstaller):
     # create and activate the virtual environment
     self.apiRoot = makeMeta['ApiRoot']
     logger.info('api root : ' + self.apiRoot)
-    if os.path.exists(self.apiRoot):
-      raise Exception('EEOWW! %s apienv already exists' % self.apiRoot)
-    for makePath in makeMeta['LibAsset']:
+    for makePath in makeMeta['SysPlan']:
       repoKey, sysPath = makePath.split('|')
       sysPath = self.createPath(sysPath, True)
       if repoKey in makeMeta['RepoMap']:
         self.downloadFiles(makeMeta['RepoMap'][repoKey], sysPath)
-    for makePath in makeMeta['LibAsset']:
+    for makePath in makeMeta['SysPlan']:
       repoKey, sysPath = makePath.split('|')
       self.createPath(sysPath, False)
       if repoKey in makeMeta['RepoMap']:
@@ -314,7 +312,7 @@ class FileSysApiInstaller(ApiInstaller):
         errmsg = 'ApiCore install failed. api root already exists : '
         errmsg += self.apiRoot
         logger.error(errmsg)
-        #raise Exception(errmsg)
+        raise Exception(errmsg)
       # resolve and make the ApiCore sysdir list
       self.resolveApiPlan('ApiCore',makeMeta,make=True)
       self._installFiles('ApiCore', makeMeta)
@@ -393,8 +391,6 @@ if __name__ == '__main__':
   logger.addHandler(consoleHandler)
   logger.setLevel(logging.INFO)
 
-  #stashBase = 'https://bitbucket.int.corp.sun/projects/PI/repos/ci/browse/PiDevApps/CsvCheckerApi'
-  
   parser = OptionParser()
   parser.add_option("-f", "--force", action="store_true", dest="forcedWrite",
                   help="force overwrite existing service package", default=False)
@@ -421,4 +417,3 @@ if __name__ == '__main__':
   except (Exception, OSError) as ex:
     logger.error('caught exception : ' + str(ex))
     raise
-    
