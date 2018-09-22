@@ -12,6 +12,7 @@ The wikipedia (https://en.wikipedia.org/wiki/Actor_model) software actor descrip
 
 PM 22-09-2018
 Improved ApiInstaller.py to support client application access of installation meta data
+<br>
 Now exports api meta info by service/server name to a predefined meta file, apimeta.txt
 
 apiDomain|default|localhost:5000
