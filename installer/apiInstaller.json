@@ -26,27 +26,31 @@
     }
   }, 
   "ApiPlan": [
-    "root|%s", 
-    "apibase|%s/apibase", 
-    "apiservice|%s/apiservice", 
-    "apitools|%s/apitools", 
-    "jobstore|%s/jobstore", 
-    "leveldb|%s/leveldb", 
-    "log|%s/log"
+    "root|", 
+    "apibase|apibase", 
+    "apiservice|apiservice", 
+    "apitools|apitools", 
+    "jobstore|jobstore", 
+    "leveldb|leveldb", 
+    "log|log"
   ], 
-  "ApiRoot": "/apps/dev1/webapi", 
+  "ApiRoot": {
+    "default": "<api_root>", 
+    "<service_nodename": "<specific_api_root>"
+  }, 
   "Domain": {
     "csvChecker": "localhost:5000", 
     "wcEmulation": "localhost:5000"
   }, 
-  "Installed": [
-    "ApiCore", 
-    "wcEmulation", 
-    "csvChecker"
-  ], 
+  "Installed": {
+    "soarp311007.int.corp.sun": [
+      "ApiCore", 
+      "csvChecker"
+    ]
+  }, 
   "PipEnv": [
     "PIP_INDEX_URL|<pip_index_url>", 
-    "PIP_TRUSTED_HOST|<pip_host>"
+    "PIP_TRUSTED_HOST|<pip_trusted_host>"
   ], 
   "RepoName": {
     "ApiCore": "ApiCore", 
@@ -57,9 +61,13 @@
     "csvChecker", 
     "wcEmulation"
   ], 
+  "SysPlan": {
+    "default": "<default_sys_root>", 
+    "server_nodename": "<specific_sys_root>"
+  }, 
   "csvChecker": {
     "ApiPlan": [
-      "cctools|%s/apitools/cc"
+      "cctools|apitools/cc"
     ], 
     "RepoMap": {
       "apiservice": [
@@ -80,13 +88,13 @@
       ]
     }, 
     "SysPlan": [
-      "assets|<assets_lib>", 
-      "sasautos|<sasautos_lib>"
+      "assets|pi/csvcheck/assets", 
+      "sasautos|pi/csvcheck/sasautos"
     ]
   }, 
   "wcEmulation": {
     "ApiPlan": [
-      "wctools|%s/apitools/wcemltn"
+      "wctools|apitools/wcemltn"
     ], 
     "RepoMap": {
       "apiservice": [
@@ -119,11 +127,11 @@
       ]
     }, 
     "SysPlan": [
-      "assets|<assets_lib>", 
-      "calcorder|<calcorder_lib>", 
-      "dataprep|<dataprep_lib>", 
-      "simbatch|<simbatch_lib>", 
-      "wrkcmp|<wrkcmp_lib>"
+      "assets|assets", 
+      "calcorder|saslib/calcorder", 
+      "dataprep|sasautos/dataprep", 
+      "simbatch|sasautos/simbatch", 
+      "wrkcmp|sasautos/wrkcmp"
     ]
   }
 }
