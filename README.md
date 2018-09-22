@@ -14,10 +14,10 @@ PM 22-09-2018
 Improved ApiInstaller.py to support client application access of installation meta data
 - now exports api meta info by service/server name to a predefined meta file, apimeta.txt
 
-apiDomain=wcEmulation|localhost:5000
-apiDomain=csvChecker|localhost:5000
-apiRoot=default|/apps/webapi
-apiRoot=<server_name>|/apps/dev1/webapi
-sysRoot=default|/data/saslib/api
+apiDomain=wcEmulation|localhost:5000\n
+apiDomain=csvChecker|localhost:5000\n
+apiRoot=default|/apps/webapi\n
+apiRoot=<server_name>|/apps/dev1/webapi\n
+sysRoot=default|/data/saslib/api\n
 
 Added sas client sample, see ExampleClient content
