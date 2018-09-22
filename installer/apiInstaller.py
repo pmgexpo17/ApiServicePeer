@@ -198,10 +198,10 @@ class ApiInstaller(object):
     self.apiRoot = makeMeta['ApiRoot'][apiKey]
     logger.info('api root : ' + self.apiRoot)
 
-    apiKey = 'default'
-    if self.serverName in makeMeta['SysPlan']:
-      apiKey = self.serverName
-    self.sysRoot = makeMeta['SysPlan'][apiKey]
+    sysKey = 'default'
+    if self.serverName in makeMeta['SysRoot']:
+      sysKey = self.serverName
+    self.sysRoot = makeMeta['SysRoot'][sysKey]
     logger.info('api sysplan root : ' + self.sysRoot)
     
     self.installLog = []
@@ -267,9 +267,12 @@ class ApiInstaller(object):
       os.system('mkdir -p /apps/etc')
     with open('/apps/etc/apimeta.txt','w') as fhw:
       for serviceName, domain in makeMeta['Domain'].items():
-        fhw.write('apiDomain=%s|%s\n' % (serviceName,domain))
-      fhw.write('apiRoot=%s\n' % self.apiRoot)
-      fhw.write('sysRoot=%s\n' % self.sysRoot)
+        fhw.write('apiDomain|%s|%s\n' % (serviceName,domain))
+      for serverName, apiRoot in makeMeta['ApiRoot'].items():
+        fhw.write('apiRoot|%s|%s\n' % (serverName,apiRoot))
+      for serverName, sysRoot in makeMeta['SysRoot'].items():
+        fhw.write('sysRoot|%s|%s\n' % (serverName,sysRoot))
+
 
 # -------------------------------------------------------------- #
 # StashApiInstaller
@@ -311,19 +314,8 @@ class StashApiInstaller(ApiInstaller):
   def installFiles(self, makeMeta):  
   
     logger.info('StashApiInstaller - installing files ...')
-    # create and activate the virtual environment
-    logger.info('api root : ' + self.apiRoot)
-    for makePath in makeMeta['SysPlan']:
-      repoKey, sysPath = makePath.split('|')
-      sysPath = self.createPath(sysPath, True)
-      if repoKey in makeMeta['RepoMap']:
-        self.downloadFiles(makeMeta['RepoMap'][repoKey], sysPath)
-    for makePath in makeMeta['SysPlan']:
-      repoKey, sysPath = makePath.split('|')
-      self.createPath(sysPath, False)
-      if repoKey in makeMeta['RepoMap']:
-        self.downloadFiles(makeMeta['RepoMap'][repoKey], sysPath)
-
+    # TODO ...
+    
 # -------------------------------------------------------------- #
 # FileSysApiInstaller
 # ---------------------------------------------------------------#
@@ -456,3 +448,4 @@ if __name__ == '__main__':
   except (Exception, OSError) as ex:
     logger.error('caught exception : ' + str(ex))
     raise
+	
