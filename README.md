@@ -10,7 +10,7 @@ The wikipedia (https://en.wikipedia.org/wiki/Actor_model) software actor descrip
   next message received. Actors may modify their own private state, but can only 
   affect each other through messages (avoiding the need for any locks)
 
-PM 22-09-2018
+PM 22-09-2018<br>
 Improved ApiInstaller.py to support client application access of installation meta data<br>
 Now exports api meta info by service/server name to a predefined meta file, apimeta.txt
 
