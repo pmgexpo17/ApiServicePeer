@@ -11,16 +11,15 @@ The wikipedia (https://en.wikipedia.org/wiki/Actor_model) software actor descrip
   affect each other through messages (avoiding the need for any locks)
 
 PM 22-09-2018
-Improved ApiInstaller.py to support client application access of installation meta data
-<br>
+Improved ApiInstaller.py to support client application access of installation meta data<br>
 Now exports api meta info by service/server name to a predefined meta file, apimeta.txt
 
-apiDomain|default|localhost:5000
-apiDomain|wcEmulation|localhost:5050
-apiDomain|csvChecker|localhost:5050
-apiRoot|default|/apps/webapi
-apiRoot|<server_name>|/apps/dev1/webapi
-sysRoot=default|/data/BASESAS/api
-sysRoot|<server_name>|/data/saslib/api
+apiDomain|default|localhost:5000<br>
+apiDomain|wcEmulation|localhost:5050<br>
+apiDomain|csvChecker|localhost:5050<br>
+apiRoot|default|/apps/webapi<br>
+apiRoot|<server_name>|/apps/dev1/webapi<br>
+sysRoot=default|/data/BASESAS/api<br>
+sysRoot|<server_name>|/data/saslib/api<br>
 
 Added sas client sample, see ExampleClient content
