@@ -9,3 +9,15 @@ The wikipedia (https://en.wikipedia.org/wiki/Actor_model) software actor descrip
   create more actors, send more messages, and determine how to respond to the 
   next message received. Actors may modify their own private state, but can only 
   affect each other through messages (avoiding the need for any locks)
+
+PM 22-09-2018
+Improved ApiInstaller.py to support client application access of installation meta data
+- now exports api meta info by service/server name to a predefined meta file, apimeta.txt
+
+apiDomain=wcEmulation|localhost:5000
+apiDomain=csvChecker|localhost:5000
+apiRoot=default|/apps/webapi
+apiRoot=<server_name>|/apps/dev1/webapi
+sysRoot=default|/data/saslib/api
+
+Added sas client sample, see ExampleClient content
