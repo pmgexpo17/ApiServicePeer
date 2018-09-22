@@ -56,6 +56,10 @@
 		input metaKey1 $ metaKey2 $ metaVal $;
 	RUN;
 	
+	%let apiDomain =;
+	%let apiRoot =;
+	%let sysRoot =;
+	
 	%put [STEP_02];	
 	DATA _null_;
 	  attrib clientItem length $100;
@@ -79,9 +83,18 @@
 	  END;
   RUN;	  
 	
-  %put [INFO] sysRoot : &sysRoot;
-  %put [INFO] apiDomain : &apiDomain;
-  %put [INFO] apiRoot : &apiRoot;
+	%put [INFO] apiDomain : &apiDomain;
+	%put [INFO] apiRoot : &apiRoot;
+	%put [INFO] sysRoot : &sysRoot;
+	
+	%let apiMetaError = %length(&apiDomain) = 0 OR %length(&apiRoot) = 0 OR %length(&sysRoot) = 0;
+	
+  %if &apiMetaError %then %do;
+  
+    %put [ERROR] failed to resolve 1 or more required api meta vars;
+    %return;
+    
+  %end;
 
   %let ccautoLib = &sysRoot/pi/csvcheck/sasautos;
 
