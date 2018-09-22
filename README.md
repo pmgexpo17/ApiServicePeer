@@ -14,9 +14,8 @@ PM 22-09-2018
 Improved ApiInstaller.py to support client application access of installation meta data<br>
 Now exports api meta info by service/server name to a predefined meta file, apimeta.txt
 
-apiDomain|default|localhost:5000<br>
-apiDomain|wcEmulation|localhost:5050<br>
-apiDomain|csvChecker|localhost:5050<br>
+apiDomain|wcEmulation|localhost:5000<br>
+apiDomain|csvChecker|localhost:5000<br>
 apiRoot|default|/apps/webapi<br>
 apiRoot|<server_name>|/apps/dev1/webapi<br>
 sysRoot=default|/data/BASESAS/api<br>
