@@ -25,6 +25,7 @@ import logging
 import virtualenv
 import pip
 import os, sys
+import platform
 import requests
 from optparse import OptionParser
 
@@ -126,8 +127,7 @@ class ApiInstaller(object):
     makeMeta['Domain']
     makeMeta['Installed']
     makeMeta['Services']
-    self.apiRoot = makeMeta['ApiRoot']
-    logger.info('api root : ' + self.apiRoot)
+    makeMeta[self.serviceName]
     return makeMeta
 
   # -------------------------------------------------------------- #
@@ -160,9 +160,10 @@ class ApiInstaller(object):
   # evalApiPlan
   # ---------------------------------------------------------------#
   def evalApiPlan(self, apiPlan, isApiPlan, make=False):
-    for makePath in apiPlan:
+    for makePath in apiPlan:      
       repoKey, sysPath = makePath.split('|')
-      _sysPath = sysPath % self.apiRoot if isApiPlan else sysPath
+      _sysRoot = self.apiRoot if isApiPlan else self.sysRoot
+      _sysPath = sysPath if sysPath == 'root' else _sysRoot + '/' + sysPath
       self.apiPlan[repoKey] = _sysPath
       if not make and not os.path.exists(_sysPath):
         logmsg = 'EEOWW! expected api path %s does not exist, making now ...'
@@ -175,9 +176,11 @@ class ApiInstaller(object):
   # run
   # ---------------------------------------------------------------#
   def run(self):
-    logger.info('### repoPath : %s ' % self.repoPath)    
+    self.serverName = platform.node()
+    logger.info('### repoPath : %s ' % self.repoPath)
+    logger.info('### serverName : %s ' % self.serverName)
     logger.info('### starting api installation ...  ###')
-
+    
     try:
       makeMeta = self.importMeta()
     except ValueError as ex:
@@ -188,7 +191,24 @@ class ApiInstaller(object):
       errmsg = 'apiInstaller.json is missing required install key ' + str(ex)
       logger.error(errmsg)
       raise Exception(errmsg)
+
+    apiKey = 'default'
+    if self.serverName in makeMeta['ApiRoot']:
+      apiKey = self.serverName
+    self.apiRoot = makeMeta['ApiRoot'][apiKey]
+    logger.info('api root : ' + self.apiRoot)
+
+    apiKey = 'default'
+    if self.serverName in makeMeta['SysPlan']:
+      apiKey = self.serverName
+    self.sysRoot = makeMeta['SysPlan'][apiKey]
+    logger.info('api sysplan root : ' + self.sysRoot)
     
+    self.installLog = []
+    if self.serverName in makeMeta['Installed']:
+      self.installLog = makeMeta['Installed'][self.serverName]
+    logger.info('api install log : ' + str(self.installLog))
+
     if self.serviceName == 'ApiCore':
       domains = list(set(makeMeta['Domain'].values()))
       for domain in domains:
@@ -197,8 +217,10 @@ class ApiInstaller(object):
           logger.error(errmsg)
           raise Exception(errmsg)
     else:
-      if self.serviceName in makeMeta['Installed']:
-        if self.isRunning(makeMeta['Domain'][self.serviceName]):
+      serviceDomain = makeMeta['Domain'][self.serviceName]
+      logger.info('api domain : ' + serviceDomain)
+      if self.serviceName in self.installLog:
+        if self.isRunning(serviceDomain):
           errmsg = self.serviceName + ' is aleady installed, and the host is running\n'
           errmsg += 'use the apiAgent reloadModule function instead'
           logger.error(errmsg)
@@ -209,14 +231,14 @@ class ApiInstaller(object):
         logger.error(errmsg)
         raise Exception(errmsg)
 
-    if self.serviceName in makeMeta['Installed']:
+    if self.serviceName in self.installLog:
       if not self.updateParts and not self.forcedWrite:
         errmsg = 'service is aleady installed, so the -f option must be used'
         logger.error(errmsg)
         raise Exception(errmsg)
         
     installed = self.installFiles(makeMeta)
-    makeMeta['Installed'] += installed
+    self.installLog += installed
     self.updateMeta(makeMeta)
     if 'ApiCore' in installed:
       self.makeVirtualEnv(makeMeta)
@@ -225,12 +247,29 @@ class ApiInstaller(object):
   # updateMeta
   # ---------------------------------------------------------------#
   def updateMeta(self, makeMeta):
+
+    if self.serviceName != 'ApiCore':
+      self.exportApiMeta(makeMeta)
     
+    makeMeta['Installed'][self.serverName] = list(self.installLog)
     logger.info('rewriting apiInstaller.json with new installed status ...')
     _apiMetaFile = self.apiMetaFile.split('.')[0] + '_new.json'
     with open(_apiMetaFile,'w') as fhw:
       fhw.write(json.dumps(makeMeta, indent=2, sort_keys=True))
     os.system('mv %s %s' % (_apiMetaFile, self.apiMetaFile))
+
+  # -------------------------------------------------------------- #
+  # exportApiMeta
+  # ---------------------------------------------------------------#
+  def exportApiMeta(self, makeMeta):
+    
+    if not os.path.exists('/apps/etc'):
+      os.system('mkdir -p /apps/etc')
+    with open('/apps/etc/apimeta.txt','w') as fhw:
+      for serviceName, domain in makeMeta['Domain'].items():
+        fhw.write('apiDomain=%s|%s\n' % (serviceName,domain))
+      fhw.write('apiRoot=%s\n' % self.apiRoot)
+      fhw.write('sysRoot=%s\n' % self.sysRoot)
 
 # -------------------------------------------------------------- #
 # StashApiInstaller
@@ -273,7 +312,6 @@ class StashApiInstaller(ApiInstaller):
   
     logger.info('StashApiInstaller - installing files ...')
     # create and activate the virtual environment
-    self.apiRoot = makeMeta['ApiRoot']
     logger.info('api root : ' + self.apiRoot)
     for makePath in makeMeta['SysPlan']:
       repoKey, sysPath = makePath.split('|')
@@ -307,7 +345,8 @@ class FileSysApiInstaller(ApiInstaller):
 
     self.apiPlan = {}
     installed = []
-    if 'ApiCore' not in makeMeta['Installed']:
+    
+    if 'ApiCore' not in self.installLog:
       if os.path.exists(self.apiRoot):
         errmsg = 'ApiCore install failed. api root already exists : '
         errmsg += self.apiRoot
@@ -322,10 +361,10 @@ class FileSysApiInstaller(ApiInstaller):
       # don't make the sysdir list but resolve for copy files
       self.resolveApiPlan('ApiCore',makeMeta,make=False)
     # resolve and make the service sysdir list
-    makeFlag = self.serviceName not in makeMeta['Installed']
+    makeFlag = self.serviceName not in self.installLog
     self.resolveApiPlan(self.serviceName,makeMeta,make=makeFlag)
     self._installFiles(self.serviceName, makeMeta)
-    if self.serviceName not in makeMeta['Installed']:
+    if self.serviceName not in self.installLog:
       installed.append(serviceName)
     return installed
       
