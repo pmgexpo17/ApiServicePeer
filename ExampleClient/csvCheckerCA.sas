@@ -19,6 +19,8 @@
   %let tableList = STE EXS LRF;
   /* space separated list of suncorp email addresses */
   %let userEmail = peter.mcgill@suncorp.com.au;
+  /* workbench server name */
+  %let serverName = wbp001001;
 
   %exportCcParms;
   %if %errorquit(quitEOP=0) %then %return;
@@ -45,33 +47,41 @@
   %else
     %put [INFO] importing apimeta vars in /apps/etc/apimeta.txt;
     
-
 	%put [STEP_01];
-	DATA _null_;
-  	attrib metaKey length = $16
-		       metaVal length = $100
-		       domain  length = $50;
-  	infile "/apps/etc/apimeta.txt" delimiter = '=' MISSOVER DSD;
-		input metaKey $ metaVal $;
-		metaKey = strip(metaKey);
-		metaVal = strip(metaVal);
-		SELECT (metaKey);
-			WHEN ('apiRoot') call symput('apiRoot',strip(metaVal));
-			WHEN ('apiDomain') DO;
-			  domain = strip(metaVal);
-			  IF index(domain,'csvChecker') > 0 THEN DO;
-			    domain = scan(domain,2,'|');
-			    call symput('apiDomain',domain);
-			  END;
-			END;
-			WHEN ('sysRoot') call symput('sysRoot',strip(metaVal));
-			OTHERWISE;
-		END;
+	DATA apiMeta_all;
+  	attrib metaKey1 length = $30
+  	       metaKey2 length = $100
+		       metaVal length = $100;
+  	infile "/apps/etc/apimeta.txt" delimiter = '|' MISSOVER DSD;
+		input metaKey1 $ metaKey2 $ metaVal $;
 	RUN;
 	
-	%put [INFO] sysRoot : &sysRoot;
-	%put [INFO] apiDomain : &apiDomain;
-	%put [INFO] apiRoot : &apiRoot;
+	%put [STEP_02];	
+	DATA _null_;
+	  attrib clientItem length $100;
+	  RETAIN clientItem;
+	  SET apiMeta_all;
+	  BY metaKey1;
+	  IF FIRST.metaKey1 THEN
+	    clientItem = '';
+	  IF metaKey2 in ('csvChecker',"&serverName") THEN
+	    clientItem = metaVal;	    
+	  /* only set default if service/server name key is not found */
+	  ELSE IF metaKey2 = 'default' AND clientItem = '' THEN
+	    clientItem = metaVal;
+	  IF LAST.metaKey1 THEN DO;
+	    SELECT (metaKey1) DO;
+	      WHEN ('apiDomain') call symput('apiDomain',strip(clientItem));
+	      WHEN ('apiRoot') call symput('apiRoot',strip(clientItem));
+	      WHEN ('sysRoot') call symput('sysRoot',strip(clientItem));
+	      OTHERWISE;
+	    END;
+	  END;
+  RUN;	  
+	
+  %put [INFO] sysRoot : &sysRoot;
+  %put [INFO] apiDomain : &apiDomain;
+  %put [INFO] apiRoot : &apiRoot;
 
   %let ccautoLib = &sysRoot/pi/csvcheck/sasautos;
 
