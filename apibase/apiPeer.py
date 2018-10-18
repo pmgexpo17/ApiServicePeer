@@ -174,21 +174,6 @@ class Ping(Resource):
     setPrvdr()
     return {'status':200,'pid':os.getpid()}, 200
 
-##
-## Actually setup the Api resource routing here
-##
-
-def dispatch(jobId, *argv, **kwargs):
-  
-  try:
-    delegate = ApiPeer.getActor(jobId)
-  except KeyError:
-    logger.error('jobId not found in job register : ' + jobId)
-    return
-  
-  delegate(*argv, **kwargs)
-  ApiPeer.evalComplete(delegate, jobId)
-
 # create_app style which supports the Flask factory pattern
 class ApiPeer(object):
   appPrvdr = None
@@ -221,6 +206,9 @@ class ApiPeer(object):
     if app_config:
       flask.config.from_pyfile(app_config)
 
+    ##
+    ## Actually setup the Api resource routing here
+    ##
     flaskApi = Api(flask)
     flaskApi.add_resource(SmartJob, '/api/v1/smart')
     flaskApi.add_resource(AsyncJob, '/api/v1/async/<jobRange>')
