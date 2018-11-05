@@ -22,3 +22,6 @@ sysRoot=default|/data/BASESAS/api<br>
 sysRoot|<server_name>|/data/saslib/api<br>
 
 Added sas client sample, see ExampleClient content
+
+PM 05-11-2018
+I'm now refactoring to make a Kubernetes with docker application for cloud integration
