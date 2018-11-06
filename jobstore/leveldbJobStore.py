@@ -57,7 +57,7 @@ class LeveldbJobStore(BaseJobStore):
     xref_key = self.xrefKey + job_id
     return self.db.Get(xref_key)
 
-  # lookup_job - abstract framework method
+  # lookup_job - framework method
   def lookup_job(self, job_id):
     try:
       job_key = self.get_job_key(job_id)
@@ -95,13 +95,13 @@ class LeveldbJobStore(BaseJobStore):
     self._logger.debug('end key: ' + endKey)
     return self.db.RangeIter(startKey, endKey,include_value=incVals) 
 
-  # get_due_jobs - abstract framework method
+  # get_due_jobs - framework method
   def get_due_jobs(self, now):
     timestamp = self.get_timestamp(now)
     cronIter = self._get_all_jobs('cronKey', endTime=timestamp)
     return self._reconstitute_jobs(cronIter, context='CRON')
 
-  # get_next_run_time - abstract framework method
+  # get_next_run_time - framework method
   def get_next_run_time(self):
     cronIter = self._get_all_jobs('cronKey')
     try:
@@ -114,14 +114,14 @@ class LeveldbJobStore(BaseJobStore):
     except BaseException as ex:
       self._logger.error(str(ex))
 
-  # get_all_jobs - abstract framework method
+  # get_all_jobs - framework method
   def get_all_jobs(self):
     jobIter = self._get_all_jobs('jobKey')
     jobs = self._reconstitute_jobs(jobIter)
     self._fix_paused_jobs_sorting(jobs)
     return jobs
 
-  # add_job - abstract framework method
+  # add_job - framework method
   def add_job(self, job):
     try:
       #test if the job uuid xref already exists
@@ -158,7 +158,7 @@ class LeveldbJobStore(BaseJobStore):
     #don't need to cron job_key timestamp uniqueness since the related scheduler call is synchronized
     self.db.Put(cron_key, pickle.dumps(cron_state,self.pickleProtocol), sync=True)
 
-  # update_job - abstract framework method
+  # update_job - framework method
   def update_job(self, upd_job):
     try:
       job_key = self.get_job_key(upd_job.id)
@@ -177,7 +177,7 @@ class LeveldbJobStore(BaseJobStore):
     cron_key = self.cronKey + timestamp
     self.db.Delete(cron_key)
 
-  # remove_job - abstract framework method
+  # remove_job - framework method
   def remove_job(self, job_id):
     try:
       job_key = self.get_job_key(job_id)
@@ -200,7 +200,7 @@ class LeveldbJobStore(BaseJobStore):
       self._logger.exception('Failed to restore job state[%s], removing it ...' % job_key)
       self.db.Delete(job_key)
 
-  # remove_all_jobs - abstract framework method
+  # remove_all_jobs - framework method
   def remove_all_jobs(self):
     jobIter = self._get_all_jobs('jobKey',incVals=False)
     while True:
@@ -233,7 +233,7 @@ class LeveldbJobStore(BaseJobStore):
       self._logger.exception('Failed to restore cron item[%s], removing it ...' % cron_key)
       self.db.Delete(cron_key)
 
-  # shutdown - abstract framework method
+  # shutdown - framework method
   def shutdown(self):
     # TO DO : add method to handle workbench shutdown if shutdown causes data loss
     pass
