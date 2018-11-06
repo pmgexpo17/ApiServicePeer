@@ -1,5 +1,5 @@
 # ApiServicePeer
-A python apscheduler variant for hosting api services to enable cloud apps integration
+A python apscheduler variant for hosting api services for cloud apps integration
 
 The design intention of a smart job is to enable a group of actors to each run a state
 machine as a subprogram of an integrated super program
