@@ -25,3 +25,6 @@ Added sas client sample, see ExampleClient content
 
 PM 05-11-2018<br>
 I'm now refactoring to make a Kubernetes-docker application for cloud integration
+
+# - 21/02/2019 - For all enterprise project enquires : pmg7670@gmail.com
+

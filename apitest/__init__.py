@@ -1,1 +1,0 @@
-from emailPrvdr import TestEmailPrvdr
