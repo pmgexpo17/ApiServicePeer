@@ -232,9 +232,9 @@ class JobControler:
     try:
       await self.executor.runJob('adhoc', *args, **kwargs)
     except asyncio.CancelledError:
-      logger.exception(f'{self.jobId}, HardHash provider removal was canceled')
+      logger.exception(f'{self.jobId}, HardHash lifecycle task was canceled')
     except Exception as ex:
-      logger.exception(f'{self.jobId}, HardHash provider removal errored', exc_info=True)
+      logger.exception(f'{self.jobId}, HardHash lifecycle task errored', exc_info=True)
 
   # -------------------------------------------------------------- #
   # terminate
