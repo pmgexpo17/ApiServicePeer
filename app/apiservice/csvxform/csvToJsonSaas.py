@@ -161,9 +161,9 @@ class Resolvar(AppResolvar):
       raise Exception(result['error'])
     return result
 
-	# -------------------------------------------------------------- #
-	# EVAL_XFORM_META
-	# ---------------------------------------------------------------#
+  # -------------------------------------------------------------- #
+  # EVAL_XFORM_META
+  # ---------------------------------------------------------------#
   def EVAL_XFORM_META(self):
     self.evalXformMeta()
     state = self.state
