@@ -12,5 +12,3 @@ The wikipedia [software actor](https://en.wikipedia.org/wiki/Actor_model) descri
   next message received. Actors may modify their own private state, but can only 
   affect each other through messages (avoiding the need for any locks)
 
-# - 21/02/2019 - For all enterprise project enquires : pmg7670@gmail.com
-
