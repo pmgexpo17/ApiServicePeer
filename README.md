@@ -1,7 +1,7 @@
 # ApiServicePeer
 A python peer-to-peer framework for hosting api services for cloud apps integration
 
-Any UML state diagram of a large distributed program can be converted to a collection of ApiServicePeer micro-services
+Core design feature : A (http://www.agilemodeling.com/artifacts/sequenceDiagram.htm) UML sequence diagram of a distributed program is converted to a micro-services collection installed by docker in a server cluster. The code here only documents the micro services part. The front-end web app is currently in development.
 
 The design intention of a smart job is to enable a group of actors to each run a state
 machine as a subprogram of an integrated super program
