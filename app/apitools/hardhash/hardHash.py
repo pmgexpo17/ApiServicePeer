@@ -38,8 +38,7 @@ class HHDealer:
 
 #------------------------------------------------------------------#
 # HHProvider
-# factory dict id to enable multiple current sessions, where the 
-# the session id is hhId
+# factory dict allows multiple client sessions, where session id = hhId
 #------------------------------------------------------------------#
 class HHProvider:
   lock = RLock()
@@ -55,10 +54,10 @@ class HHProvider:
     self._started = HHDealer()
     self.lock = RLock()
 
-	#------------------------------------------------------------------#
-	# start -
+  #------------------------------------------------------------------#
+  # start -
   # - HHProvider factory creation
-	#------------------------------------------------------------------#
+  #------------------------------------------------------------------#
   @staticmethod
   def create(hhId, routerAddr, clients=[]):
     with HHProvider.lock:
