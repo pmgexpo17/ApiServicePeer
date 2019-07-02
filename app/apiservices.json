@@ -1,41 +1,5 @@
 {
 	"services" : {
-		"jsonToCsv" : [
-			{"name" : "apiservice.jsonxform.jsonToCsvClient",
-			 "fromList" : [
-				"JsonToCsv"
-			 ]
-			},
-			{"name" : "apiservice.jsonxform.jsonToCsvSaas",
-			 "fromList" : [
-					"JsonToCsvSaas",
-					"NormaliseLstnr"
-			 ]
-			},
-			{"name" : "apiservice.jsonxform.jsonToCsvXform",
-			 "fromList" : [
-					"JsonNormaliser"
-			 ]
-			}
-		],
-		"csvToJson" : [
-			{"name" : "apiservice.csvxform.csvToJsonClient",
-				"fromList" : [
-				"CsvToJson"
-				]
-			},
-			{"name" : "apiservice.csvxform.csvToJsonSaas",
-				"fromList" : [
-					"CsvToJsonSaas",
-					"NormaliseLstnr"
-				]
-			},
-			{"name" : "apiservice.csvxform.csvToJsonXform",
-				"fromList" : [
-					"JsonNormaliser"
-				]
-			}
-		],
 		"dataTxn" : [
 			{"name" : "apiservice.datatxn.dataTxnPrvdr",
 				"fromList" : [

@@ -21,14 +21,14 @@
 # THE SOFTWARE.
 #
 from aiohttp import web
-from apibase import ActorGroup, LeveldbHash, JobControler, JobPacket
+from apibase import ActorGroup, LeveldbHash, JobControler, JobGenerator, JobPacket
 from functools import partial
 from threading import RLock
 import asyncio
 import importlib
 import logging
 import leveldb
-import os, sys
+import os, subprocess, sys
 import uuid
 
 logger = logging.getLogger('apipeer.smart')
@@ -47,8 +47,14 @@ logger = logging.getLogger('apipeer.smart')
 # ---------------------------------------------------------------------------#    
 class JobService:
   
-  def __init__(self):
+  def __init__(self, leveldb):
+    self._leveldb = leveldb
+    self.cache = {}
     self.lock = RLock()
+
+  @property
+  def db(self):
+    return self._leveldb
 
   def __getitem__(self, key):
     if key in self.__dict__:
@@ -60,15 +66,41 @@ class JobService:
     return method
 
   @staticmethod
-  def make(dbPath, register):
+  def make(apiBase, register):
     logger.info('### JobService is starting ... ###')
+    dbPath = f'{apiBase}/database/metastore'
+    if not os.path.exists(dbPath):
+      subprocess.call(['mkdir','-p',dbPath])
+
     db = LeveldbHash(dbPath)
-    JobControler.start(db, register)
-    jobService = JobService()
-    jobService.db = db
-    jobService.cache = {}
-    return jobService
-    
+    JobControler.start(db, register, apiBase)
+    return JobService(db)
+
+  # -------------------------------------------------------------- #
+  # create
+  # ---------------------------------------------------------------#
+  def create(self, jmeta):
+
+    packet = JobPacket(jmeta)
+    with self.lock:
+      try:
+        jobId = packet.jobId
+      except AttributeError:
+        raise Exception("required param jobId not found")
+
+      try:
+        controler = self.cache[jobId]
+      except KeyError:
+        try:
+          coro = self.onCreate(jobId, packet)
+          future = asyncio.ensure_future(coro)
+          return {'status': 201,'jobId': jobId}
+        except Exception as ex:
+          return {'status': 500,'jobId': jobId,'error': str(ex)}          
+      else:
+        return {'status':400, 'error': f'job id {packet.jobId} exists already'}
+
+
   # -------------------------------------------------------------- #
   # promote
   # ---------------------------------------------------------------#
@@ -79,25 +111,13 @@ class JobService:
       try:
         jobId = packet.jobId
       except AttributeError:
-        raise Exception("required param 'id' not found")
+        raise Exception("required param jobId not found")
 
       try:
         controler = self.cache[jobId]
       except KeyError:
-        try:
-          controler = JobControler.make(self.db, packet)
-          actorId, actorName = controler.addActor(packet)
-        except Exception as ex:
-          return {'status': 500,'jobId': jobId,'error': str(ex)}        
-        self.cache[jobId] = controler
-        # a new program, either a sync director or async delegate
-        logger.info(f'running new actor, {actorName}, {actorId}')
-        try:
-          controler.runTask(actorId, packet)
-          return {'status': 201,'jobId': jobId,'actor': actorName,'id': actorId}
-        except Exception as ex:
-          logger.error(f'actor errored, {actorName}, {actorId}', exc_info=True)
-          return {'status': 500,'jobId': jobId,'actor': actorName,'id': actorId,'error': str(ex)}
+        errmsg = f'job {jobId} does not exist, create job first'
+        return {'status': 400,'jobId': jobId,'error': errmsg}
 
       try:
         actorId, actorName = controler[packet.actor].tell()
@@ -107,12 +127,24 @@ class JobService:
         else:
           # a live actor is promoted, ie, state machine is promoted
           logger.info(f'resuming live actor, {actorName}, {actorId}')
-          
-        controler.runTask(actorId, packet)
+
+        controler.runTask(packet)
         return {'status': 201,'jobId': jobId,'actor': actorName,'id': actorId}
       except Exception as ex:
         logger.error(f'actor errored, {actorName}, {actorId}', exc_info=True)
         return {'status': 500,'jobId': jobId,'actor': actorName,'id': actorId,'error': str(ex)}
+
+  # -------------------------------------------------------------- #
+  # onCreate
+  # ---------------------------------------------------------------#
+  async def onCreate(self, jobId, packet):
+    try:
+      self.cache[jobId] = await JobControler.make(self._leveldb, packet)
+    except asyncio.CancelledError:
+      logger.error(f'{jobId}, create failed, job generator task was canceled')
+    except Exception as ex:
+      logger.error('job creation failed', exc_info=True)
+      return {'status': 500,'jobId': jobId,'error': str(ex)}
 
   # -------------------------------------------------------------- #
   # delete
@@ -124,7 +156,7 @@ class JobService:
       try:
         jobId = packet.jobId
       except AttributeError:
-        raise Exception("required param 'id' not found")
+        raise Exception("required param jobId not found")
 
       coro = self.onDelete(jobId)
       future = asyncio.ensure_future(coro)
@@ -134,22 +166,22 @@ class JobService:
   # onDelete
   # ---------------------------------------------------------------#
   async def onDelete(self, jobId):
-      try:
-        logger.info(f'job controler {jobId} will be deleted in 5 secs ...')
-        await asyncio.sleep(5)
-        self.cache[jobId].shutdown()
-      except asyncio.CancelledError:
-        logger.error(f'{jobId}, delete failed, controler task was canceled')
-      except KeyError:
-        logger.info(f'delete failed, job controler {jobId} is not found')
-      else:
-        del self.cache[jobId]
-        logger.info(f'job controler {jobId} is now deleted')
+    try:
+      logger.info(f'job controler {jobId} will be deleted in 5 secs ...')
+      await asyncio.sleep(5)
+      self.cache[jobId].shutdown()
+    except asyncio.CancelledError:
+      logger.error(f'{jobId}, delete failed, controler task was canceled')
+    except KeyError:
+      logger.info(f'delete failed, job controler {jobId} is not found')
+    else:
+      del self.cache[jobId]
+      logger.info(f'job controler {jobId} is now deleted')
 
   # -------------------------------------------------------------- #
   # multiTask
   # ---------------------------------------------------------------#
-  def multiTask(self, jmeta, taskRange=None):
+  def multiTask(self, jmeta, jobRange=None):
 
     packet = JobPacket(jmeta)
     with self.lock:
@@ -163,16 +195,16 @@ class JobService:
       except KeyError:
         raise Exception(f'job id not found in job register : {jobId}')
 
-      if '-' in taskRange:
-        a,b = list(map(int,taskRange.split('-')))
-        taskRange = range(a,b)
+      if '-' in jobRange:
+        a,b = list(map(int,jobRange.split('-')))
+        jobRange = range(a,b)
       else:
-        b = int(taskRange) + 1
-        taskRange = range(1,b)
+        b = int(jobRange) + 1
+        jobRange = range(1,b)
 
       try:
         caller = controler[packet.caller].serviceName
-        actorGroup = ActorGroup(taskRange)
+        actorGroup = ActorGroup(jobRange)
         controler.multiTask(actorGroup, packet)
         return {'status': 201,'jobId': jobId,'caller': caller,'id': actorGroup.ids}
       except Exception as ex:
@@ -221,8 +253,7 @@ class JobService:
       try:
         controler = self.cache[jobId]
       except KeyError:
-        controler = JobControler.make(self.db, packet)
-        #raise Exception(f'job id not found in job register : {jobId}')
+        controler = JobControler.make(self._leveldb, packet)
     
       try:
         return web.json_response(controler.runQuery(packet), status=200)
@@ -235,7 +266,7 @@ class JobService:
   # ---------------------------------------------------------------#
   def removeMeta(self, actorId):
     dbKey = 'PMETA|' + actorId
-    self.db[dbKey]
+    del self._leveldb[dbKey]
 
   # -------------------------------------------------------------- #
   # getLoadStatus

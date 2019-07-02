@@ -2,24 +2,6 @@
 #
 # Copyright (c) 2018 Peter A McGill
 #
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-#
 from abc import ABCMeta, abstractmethod
 from apitools.hardhash import HardHashActor, HHProvider
 from collections import deque, OrderedDict
@@ -77,6 +59,10 @@ class NormaliserFactory(HardHashActor):
     except Exception as ex:
       logger.error('actor %s errored', self.actorId, exc_info=True)
       raise
+
+# -------------------------------------------------------------- #
+# NormaliserFactory - end
+# -------------------------------------------------------------- #  
 
 #------------------------------------------------------------------#
 # Normaliser
@@ -176,10 +162,14 @@ class NormaliseRN1(Normaliser):
     self.isRoot = True
 
 	#------------------------------------------------------------------#
-  # _putObjects
+	# _putObjects
 	#------------------------------------------------------------------#
   def _putObjects(self, keys,values):
-    raise NotImplementedError('for enterprise enquires, contact pmg7670@gmail.com')
+    recordD = dict(zip(keys,values))
+    ukvalue = self.getUkValue(recordD)
+    self._hh[ukvalue] = list(zip(keys,values))
+    dbKey = '%s|%05d' % (self.name, self.recnum)
+    self._hh[dbKey] = ukvalue
 
 #------------------------------------------------------------------#
 # NormaliseUKN1
@@ -192,10 +182,18 @@ class NormaliseUKN1(Normaliser):
     super().__init__(*args)
 
 	#------------------------------------------------------------------#
-  # _putObjects
+	# _putObjects
 	#------------------------------------------------------------------#
   def _putObjects(self, keys,values):
-    raise NotImplementedError('for enterprise enquires, contact pmg7670@gmail.com')
+    recordD = dict(zip(keys,values))
+    if self.ukey:
+      ukvalue = self.getUkValue(recordD)
+      self._hh[ukvalue] = list(zip(keys,values))
+      if self.hasParent:
+        fkvalue = self.getFkValue(recordD)
+        dbKey = '%s|%s' % (self.name,fkvalue)
+        # store ukey value by fkey for retrieving the full record by ukey at compile time
+        self._hh.append(dbKey, ukvalue)
 
 #------------------------------------------------------------------#
 # NormaliseFKN1
@@ -208,10 +206,14 @@ class NormaliseFKN1(Normaliser):
     super().__init__(*args)
 
 	#------------------------------------------------------------------#
-  # _putObjects
+	# _putObjects
 	#------------------------------------------------------------------#
   def _putObjects(self, keys,values):
-    raise NotImplementedError('for enterprise enquires, contact pmg7670@gmail.com')
+    recordD = dict(zip(keys,values))
+    fkvalue = self.getFkValue(recordD)
+    dbKey = '%s|%s' % (self.name,fkvalue)
+    recordL = list(zip(keys,values))
+    self._hh.append(dbKey, recordL)
 
 # -------------------------------------------------------------- #
 # CompilerFactory
@@ -361,20 +363,31 @@ class CompileRN1(Compiler):
   # -------------------------------------------------------------- #
   # compile
   # -------------------------------------------------------------- #
-  def compile(self, *args, **kwargs):
-    raise NotImplementedError('for enterprise enquires, contact pmg7670@gmail.com')
+  def compile(self, rowNum):
+    dbKey = '%s|%s' % (self.name, rowNum)
+    rootUkey = self._hh[dbKey]
+    self.ukeys = []
+    self.fkeyMap = {}
+    self.jsObject = {}
+    self.fkeyMap[rootUkey] = [rootUkey]
+    self.ukeys = [rootUkey]
+    self.jsObject[rootUkey] = OrderedDict(self._hh[rootUkey])
 
 	#------------------------------------------------------------------#
-  # getJsObject
+	# getJsObject
 	#------------------------------------------------------------------#
-  def getJsObject(self, *args, **kwargs):
-    raise NotImplementedError('for enterprise enquires, contact pmg7670@gmail.com')
+  def getJsObject(self, rowNum):
+    return self._hh[rowNum]
 
 	#------------------------------------------------------------------#
-  # putJsObject
+	# putJsObject
 	#------------------------------------------------------------------#
-  def putJsObject(self, *args, **kwargs):
-    raise NotImplementedError('for enterprise enquires, contact pmg7670@gmail.com')
+  def putJsObject(self, rowNum):
+    # special case : json object build is complete, now put it to db
+    jsObject = {}
+    rootUkey = self.ukeys[0]
+    jsObject[self.name] = self.jsObject[rootUkey]
+    self._hh[rowNum] = jsObject
 
 	#------------------------------------------------------------------#
 	# setRestoreMode
@@ -400,23 +413,49 @@ class CompileUKN1(Compiler):
   def __init__(self, *args):
     super().__init__(*args)
 
-  # -------------------------------------------------------------- #
-  # compile
-  # -------------------------------------------------------------- #
-  def compile(self, *args, **kwargs):
-    raise NotImplementedError('for enterprise enquires, contact pmg7670@gmail.com')
+	#------------------------------------------------------------------#
+	# compile
+	#------------------------------------------------------------------#
+  def compile(self):
+    self.ukeys = []
+    self.fkeyMap = {}
+    self.jsObject = {}
+    for fkey in self.parent.ukeys:
+      if fkey is None:
+        return
+      dbKey = '%s|%s' % (self.name,fkey)
+      fkRecord = self._hh[dbKey]
+      if not fkRecord:
+        # 0 child objects exist 
+        self.fkeyMap[fkey] = None
+        self.jsObject[fkey] = [] if self.subType == 'LIST' else self.getEmptyObj()
+        continue
+      self.fkeyMap[fkey] = []
+      for ukey in fkRecord:
+        self.fkeyMap[fkey] += [ukey]
+        self.ukeys += [ukey]        
+        self.jsObject[ukey] = OrderedDict(self._hh[ukey])
 
 	#------------------------------------------------------------------#
-  # getJsObject
+	# getJsObject
 	#------------------------------------------------------------------#
-  def getJsObject(self, *args, **kwargs):
-    raise NotImplementedError('for enterprise enquires, contact pmg7670@gmail.com')
+  def getJsObject(self, fkey):
+    ukeys = self.fkeyMap[fkey]
+    if not ukeys:
+      return self.jsObject[fkey]
+    jsObject = [] if self.subType == 'LIST' else {}
+    for ukey in ukeys:
+      if self.subType == 'LIST':
+        jsObject += [self.jsObject[ukey]]
+      else:
+        jsObject[ukey] = self.jsObject[ukey]
+    return jsObject
 
 	#------------------------------------------------------------------#
-  # putJsObject
+	# putJsObject
 	#------------------------------------------------------------------#
-  def putJsObject(self, *args, **kwargs):
-    raise NotImplementedError('for enterprise enquires, contact pmg7670@gmail.com')
+  def putJsObject(self):
+    pass
 
 #------------------------------------------------------------------#
 # CompileJsonFKN1
@@ -430,34 +469,55 @@ class CompileFKN1(Compiler):
   def __init__(self, *args):
     super().__init__(*args)
 
-  # -------------------------------------------------------------- #
-  # compile
-  # -------------------------------------------------------------- #
-  def compile(self, *args, **kwargs):
-    raise NotImplementedError('for enterprise enquires, contact pmg7670@gmail.com')
+	#------------------------------------------------------------------#
+	# compile
+	#------------------------------------------------------------------#
+  def compile(self):
+    self.ukeys = []
+    self.fkeyMap = {}
+    self.jsObject = {}
+    for fkey in self.parent.ukeys:
+      if fkey is None:
+        return
+      dbKey = '%s|%s' % (self.name,fkey)
+      fkRecord = self._hh[dbKey]
+      if not fkRecord:
+        # 0 child objects exist 
+        self.fkeyMap[fkey] = None
+        self.jsObject[fkey] = []
+        continue
+      self.fkeyMap[fkey] = []
+      for jsData in fkRecord:
+        jsObject = OrderedDict(jsData)
+        # there is no fkey to ukey mapping when ukey is not defined
+        self.fkeyMap[fkey] = fkey
+        if fkey in self.jsObject:
+          self.jsObject[fkey] += [jsObject]
+        else:
+          self.jsObject[fkey] = [jsObject]
 
 	#------------------------------------------------------------------#
-  # getJsObject
+	# getJsObject
 	#------------------------------------------------------------------#
-  def getJsObject(self, *args, **kwargs):
-    raise NotImplementedError('for enterprise enquires, contact pmg7670@gmail.com')
+  def getJsObject(self, fkey):
+    return self.jsObject[fkey]
 
 	#------------------------------------------------------------------#
-  # putJsObject
+	# putJsObject
 	#------------------------------------------------------------------#
-  def putJsObject(self, *args, **kwargs):
-    raise NotImplementedError('for enterprise enquires, contact pmg7670@gmail.com')
+  def putJsObject(self):
+    pass
 
-#------------------------------------------------------------------#
+# -------------------------------------------------------------- #
 # JsonCompiler
-#------------------------------------------------------------------#
+# -------------------------------------------------------------- #  
 class JsonCompiler(HardHashActor):
   def __init__(self, leveldb, actorId):
     super().__init__(leveldb, actorId)
 
-  #------------------------------------------------------------------#
-	# runActor
-	#------------------------------------------------------------------#
+  # -------------------------------------------------------------- #
+  # runActor
+  # ---------------------------------------------------------------#
   def runActor(self, jobId, taskNum):
     try:
       logger.info('### JsonCompiler %d is called ... ###' % taskNum)
@@ -530,16 +590,20 @@ class JsonCompiler(HardHashActor):
     for rowNum in range(1, rowCount+1):
       yield '%05d' % rowNum
 
-#------------------------------------------------------------------#
+# -------------------------------------------------------------- #
+# JsonCompiler - end
+# -------------------------------------------------------------- #  
+
+# -------------------------------------------------------------- #
 # JsonComposer
-#------------------------------------------------------------------#
+# -------------------------------------------------------------- #  
 class JsonComposer(HardHashActor):
   def __init__(self, leveldb, actorId):
     super().__init__(leveldb, actorId)
 
-  #------------------------------------------------------------------#
-	# runActor
-	#------------------------------------------------------------------#
+  # -------------------------------------------------------------- #
+  # runActor
+  # ---------------------------------------------------------------#
   def runActor(self, jobId, taskNum):
     try:
       logger.info('### JsonComposer %d is called ... ###' % taskNum)
@@ -589,3 +653,8 @@ class JsonComposer(HardHashActor):
   def compressFile(self):
     logger.info('gzip %s ...' % self.jsonFile)
     subprocess.call(['gzip',self.jsonFile],cwd=self.workSpace)
+
+# -------------------------------------------------------------- #
+# JsonComposer - end
+# -------------------------------------------------------------- #  
+

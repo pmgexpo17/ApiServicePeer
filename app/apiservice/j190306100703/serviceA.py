@@ -2,38 +2,16 @@
 #
 # Copyright (c) 2018 Peter A McGill
 #
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-#
-from apibase import AppDirector, ApiRequest, AppResolvar
-from apitools.csvxform import XformMetaPrvdr
-import datetime
+from apibase import AppDirector, ApiRequest, AppResolvar, JobMeta
+from apiservice.j190306100703 import promote, iterate
 import logging
-import os, sys, time
-import simplejson as json
-import uuid
 
 logger = logging.getLogger('apipeer.smart')
 
 # -------------------------------------------------------------- #
-# CsvToJsonSaaS
+# ServiceA
 # ---------------------------------------------------------------#
-class CsvToJsonSaas(AppDirector):
+class ServiceA(AppDirector):
   def __init__(self, leveldb, actorId):
     super().__init__(leveldb, actorId)
     self._type = 'director'
@@ -43,76 +21,31 @@ class CsvToJsonSaas(AppDirector):
     self.request = ApiRequest()
 
   # -------------------------------------------------------------- #
-  # _start
-  # ---------------------------------------------------------------#                                          
-  def _start(self, jobId, jobMeta, **kwargs):
-    logger.info('%s._start' % self.__class__.__name__)
+  # __getitem__
+  # ---------------------------------------------------------------#
+  def __getitem__(self, key):
+    if key in self.__dict__:
+      return self.__dict__[key]
+    elif key in self._quicken:
+      return self._quicken[key]
+    raise TypeError(f'{self.name}, {key} does not exist in obj properties')
+
+  # -------------------------------------------------------------- #
+  # start
+  # ---------------------------------------------------------------#
+  @promote('serviceA')
+  def start(self, jobId, jobMeta, **kwargs):
+    logger.info(f'{self.name}.start ...')
     self.jobId = jobId
-    self.hostName = jobMeta.hostName
-    self.resolve._start(jobId, jobMeta)
-   
-  # -------------------------------------------------------------- #
-  # advance
-  # ---------------------------------------------------------------#                                          
-  def advance(self, signal=None):
-    state = self.state
-    # signal = the http status code of the companion actor method
-    if signal:
-      state.hasSignal = False
-      if signal != 201:
-        logMsg = f'state transition {state.current} failed, got error signal : {signal}'
-        raise Exception(logMsg)
-      logger.info(f'{state.current} is resolved, advancing ...')
-      state.inTransition = False
-      state.hasNext = True
-    if state.hasNext:
-      state.current = state.next
-    return state
-
-  # -------------------------------------------------------------- #
-  # quicken
-  # ---------------------------------------------------------------#
-  def quicken(self):
-    if self.state.hasSignal:
-      if self.state.current in ('NORMALISE_CSV','COMPILE_JSON','COMPOSE_JSFILE','FINAL_HANDSHAKE'):
-        self.putApiRequest(201)
-
-  # -------------------------------------------------------------- #
-  # putApiRequest
-  # ---------------------------------------------------------------#
-  def putApiRequest(self, signal):
-    state = self.state
-    logger.info('!!! putApiRequest, %s' % state.current)
-    if state.current == 'FINAL_HANDSHAKE':
-      packet = {'jobId':self.jobId,'caller':'service','actor':'client'}
-      packet['args'] = [self.jobId]
-      apiUrl = 'http://%s/api/v1/smart' % self.hostName
-    elif state.current == 'NORMALISE_CSV':
-      packet = {'jobId':self.jobId,'caller':'service','actor':'normalise'}
-      packet['args'] = [self.jobId]
-      packet['kwargs'] = {'hhGroupSize':self.resolve.jobRange}
-      apiUrl = 'http://%s/api/v1/multi/%d' \
-                        % (self.hostName, self.resolve.jobRange)
-    elif self.state.current == 'COMPILE_JSON':
-      packet = {'jobId':self.jobId,'caller':'service','actor':'compile'}
-      packet['args'] = [self.jobId]
-      apiUrl = 'http://%s/api/v1/multi/1' % self.hostName
-    elif self.state.current == 'COMPOSE_JSFILE':
-      packet = {'jobId':self.jobId,'caller':'service','actor':'compose'}
-      packet['args'] = [self.jobId]
-      apiUrl = 'http://%s/api/v1/multi/1' % self.hostName
-    else:
-      logger.warn(f'{state.current} transition is not implemented')
-      return
-    response = self.request.post(apiUrl,json={'job':packet})
-    logger.info('%s, api response : %s' % (self.name, response.text))
+    self.hostName = jobMeta['hostName']
+    self.resolve.start(jobId, jobMeta)
 
   # -------------------------------------------------------------- #
   # onError
   # ---------------------------------------------------------------#
   def onError(self, ex):
-    actorId, actorName = self.tell()
     state = self.state
+    actorId, actorName = self.tell()
     if state.status != 'STARTED':
       logMsg = f'actor error, job was {state.status}, aborting ...'
     else:
@@ -120,6 +53,15 @@ class CsvToJsonSaas(AppDirector):
 
     logMsg = f'{logMsg}\nActor, {actorName}, {actorId},'
     logger.error(logMsg, exc_info=True)
+
+# The MIT License
+#
+# Copyright (c) 2018 Peter A McGill
+#
+from apitools.csvxform import XformMetaPrvdr
+import datetime
+import os, sys
+import simplejson as json
 
 # -------------------------------------------------------------- #
 # Resolvar
@@ -129,110 +71,67 @@ class Resolvar(AppResolvar):
   def __init__(self, leveldb):
     self._leveldb = leveldb
     self.request = ApiRequest()
-    self.__dict__['EVAL_XFORM_META'] = self.EVAL_XFORM_META
-    self.__dict__['NORMALISE_CSV'] = self.NORMALISE_CSV
-    self.__dict__['COMPILE_JSON'] = self.COMPILE_JSON
-    self.__dict__['COMPOSE_JSFILE'] = self.COMPOSE_JSFILE
-    self.__dict__['FINAL_HANDSHAKE'] = self.FINAL_HANDSHAKE
-    self.__dict__['REMOVE_WORKSPACE'] = self.REMOVE_WORKSPACE
 
   # -------------------------------------------------------------- #
-  # _start
+  # start
   # ---------------------------------------------------------------#
-  def _start(self, jobId, jobMeta):
+  def start(self, jobId, jobMeta):
     self.state.current = 'EVAL_XFORM_META'
     self.jobId = jobId
     self.jmeta = jobMeta
     self.hostName = jobMeta.hostName
-    msg = '%s, starting job %s ...'
-    logger.info(msg % (self.name, self.jobId))
-
-  # -------------------------------------------------------------- #
-  # getSaasMeta
-  # - generic method to lookup and return xform meta
-  # ---------------------------------------------------------------#
-  def getSaasMeta(self, metaKey, typeKey, itemKey=None):
-    packet = {'jobId': self.jobId,'metaKey': metaKey,'typeKey': typeKey,'itemKey': itemKey}
-    apiUrl = 'http://%s/api/v1/saas/meta' % self.jmeta.hostName
-    logger.info(f'### getSaasMeta : {apiUrl}')
-    response = self.request.get(apiUrl,json={'job':packet})
-    result = json.loads(response.text)
-    if 'error' in result:
-      raise Exception(result['error'])
-    return result
-
-  # -------------------------------------------------------------- #
-  # EVAL_XFORM_META
-  # ---------------------------------------------------------------#
-  def EVAL_XFORM_META(self):
-    self.evalXformMeta()
-    state = self.state
-    state.next = 'NORMALISE_CSV'
-    state.hasNext = True
-    return state
+    logger.info(f'{self.name}, starting job {self.jobId} ...')
 
   # -------------------------------------------------------------- #
   # NORMALISE_CSV
-  # ---------------------------------------------------------------#
+  # -------------------------------------------------------------- #  
+  @iterate('serviceA')
+  def EVAL_XFORM_META(self):
+    self.evalXformMeta()
+
+  # -------------------------------------------------------------- #
+  # NORMALISE_CSV
+  # -------------------------------------------------------------- #  
+  @iterate('serviceA')
   def NORMALISE_CSV(self):
     self.evalSysStatus()
     self.putXformMeta()
-    state = self.state
-    state.inTransition = True
-    state.hasSignal = True
-    state.next = 'COMPILE_JSON'
-    state.hasNext = False
-    return state
 
   # -------------------------------------------------------------- #
   # COMPILE_JSON
-  # ---------------------------------------------------------------#
+  # -------------------------------------------------------------- #  
+  @iterate('serviceA')
   def COMPILE_JSON(self):
-    state = self.state
-    state.inTransition = True
-    state.hasSignal = True
-    state.next = 'COMPOSE_JSFILE'
-    state.hasNext = False
-    return state
+    pass
 
   # -------------------------------------------------------------- #
   # COMPOSE_JSFILE
-  # ---------------------------------------------------------------#
+  # -------------------------------------------------------------- #  
+  @iterate('serviceA')
   def COMPOSE_JSFILE(self):
     self.putJsonFileMeta()
-    state = self.state
-    state.inTransition = True
-    state.hasSignal = True
-    state.next = 'FINAL_HANDSHAKE'
-    state.hasNext = False
-    return state
 
   # -------------------------------------------------------------- #
   # FINAL_HANDSHAKE
-  # ---------------------------------------------------------------#
+  # -------------------------------------------------------------- #  
+  @iterate('serviceA')
   def FINAL_HANDSHAKE(self):
-    state = self.state
-    state.inTransition = True
-    state.hasSignal = True
-    state.next = 'REMOVE_WORKSPACE'
-    state.hasNext = False
-    return state
+    pass
 
   # -------------------------------------------------------------- #
   # REMOVE_WORKSPACE
-  # ---------------------------------------------------------------#
+  # -------------------------------------------------------------- #  
+  @iterate('serviceA')
   def REMOVE_WORKSPACE(self):
     self.removeWorkSpace()
-    state = self.state
-    state.hasNext = False
-    state.complete = True
-    return state
 
   # -------------------------------------------------------------- #
   # evalXformMeta -
   # ---------------------------------------------------------------#
   def evalXformMeta(self):
-    repoMeta = self.getSaasMeta('service:xformMeta','XFORM',itemKey='csvToJson')
+    jpacket = {'metaKey':'xformMeta','typeKey':'XFORM','itemKey':'csvToJson'}
+    repoMeta = self.runQuery(JobMeta(jpacket))
+
     metaFile = repoMeta['repoName'] + '/' + repoMeta['xformMeta']
     logger.info('xform meta file : ' + metaFile)
     if not os.path.exists(metaFile):
@@ -255,7 +154,9 @@ class Resolvar(AppResolvar):
   # evalSysStatus
   # ---------------------------------------------------------------#
   def evalSysStatus(self):
-    repoMeta = self.getSaasMeta('service:repoMeta','REPO')
+    jpacket = {'metaKey':'repoMeta','typeKey':'REPO'}
+    repoMeta = self.runQuery(JobMeta(jpacket))
+    
     if not os.path.exists(repoMeta['sysPath']):
       errmsg = 'xform input path does not exist : ' + repoMeta['sysPath']
       raise Exception(errmsg)
@@ -352,4 +253,3 @@ class Resolvar(AppResolvar):
     except Exception as ex:
       logger.error('%s, workspace removal failed' % self.jobId)
       raise
-

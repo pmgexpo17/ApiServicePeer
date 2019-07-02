@@ -53,14 +53,14 @@ class MultiTask(web.View):
   async def post(self):
     try:
       prvdr = self.request.app['jobService']
-      taskRange = self.request.match_info['taskRange']
+      jobRange = self.request.match_info['jobRange']
       #rdata = self.request._rdata
       rdata = await self.request.json()
       if 'job' not in rdata:
         return {'status':400, 'error': "required param 'job' not found"}
       jdata = rdata['job']
       logger.info('job packet : ' + str(jdata))
-      response = prvdr.multiTask(jdata,taskRange=taskRange)
+      response = prvdr.multiTask(jdata,jobRange=jobRange)
     except Exception as ex:
       logger.exception('multiTask job failed\n%s',str(ex))
       return web.json_response({'status': 500,'error': str(ex)}, status=500)
@@ -68,9 +68,9 @@ class MultiTask(web.View):
       return web.json_response(response, status=201)
 
 # -------------------------------------------------------------- #
-# SyncTask
+# SyncJob
 # ---------------------------------------------------------------#
-class SyncTask(web.View):
+class SyncJob(web.View):
 
   async def post(self):
     try:
@@ -185,10 +185,12 @@ class SaasAdmin(web.View):
   async def put(self):
     try:
       prvdr = self.request.app['jobService']
+
       #rdata = self.request._rdata
       rdata = await self.request.json()
       if 'job' not in rdata:
         return {'status':400, 'error': "required param 'job' not found"}
+
       jdata = rdata['job']
       logger.info('job packet : ' + str(jdata))
 
@@ -235,12 +237,12 @@ class ApiPeer:
 
   @staticmethod    
   def make(apiBase):
-    logPath = '%s/log' % apiBase
+    logPath = f'{apiBase}/log'
     if not os.path.exists(logPath):
       subprocess.call(['mkdir','-p',logPath])
 
     logger1 = logging.getLogger('apipeer.server')
-    logfile = '%s/apiServer.log' % logPath
+    logfile = f'{logPath}/apiServer.log'
     addHandler(logger1, logfile=logfile)
     addHandler(logger1)
     logger1.setLevel(logging.INFO)
@@ -248,39 +250,34 @@ class ApiPeer:
     logger = logger1
 
     logger2 = logging.getLogger('apipeer.smart')
-    logfile = '%s/apiSmart.log' % logPath
+    logfile = f'{logPath}/apiSmart.log'
     addHandler(logger2, logfile=logfile)
     addHandler(logger2)
     logger2.setLevel(logging.INFO)
 
     logger3 = logging.getLogger('apipeer.multi')
-    logfile = '%s/apiMultiTask.log' % logPath
+    logfile = f'{logPath}/apiMultiTask.log'
     addHandler(logger3, logfile=logfile)
     logger3.setLevel(logging.INFO)
 
     logger4 = logging.getLogger('apipeer.tools')
-    logfile = '%s/apiTools.log' % logPath
+    logfile = f'{logPath}/apiTools.log'
     addHandler(logger4, logfile=logfile)
     logger4.setLevel(logging.INFO)
-
-    dbPath = '%s/database/metastore' % apiBase
-    if not os.path.exists(dbPath):
-      subprocess.call(['mkdir','-p',dbPath])
-    return dbPath
   
   @staticmethod
   async def start(apiBase, register, port, sslMeta=None):
 
-    dbPath = ApiPeer.make(apiBase)
-    jobService = JobService.make(dbPath, register)
+    ApiPeer.make(apiBase)
+    jobService = JobService.make(apiBase, register)
 
     app = web.Application()
     app.router.add_routes([
       web.post('/api/v1/smart',SmartJob),
       web.post('/api/v1/smart/{method}',SmartJob),
       web.delete('/api/v1/smart',SmartJob),
-      web.post('/api/v1/multi/{taskRange}',MultiTask),
-      web.post('/api/v1/sync',SyncTask),
+      web.post('/api/v1/multi/{jobRange}',MultiTask),
+      web.post('/api/v1/sync',SyncJob),
       web.post('/api/v1/service/{serviceName}',ServiceManager),
       web.get('/api/v1/ping',Ping),
       web.get('/api/v1/saas/meta',SaasMeta),

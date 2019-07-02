@@ -1,6 +1,7 @@
 from concurrent.futures import FIRST_EXCEPTION
 from functools import partial
 from threading import RLock
+from apibase import JobMeta
 import asyncio
 import logging
 import sys
@@ -85,35 +86,16 @@ class DirectorExecutor(BaseExecutor):
   # -------------------------------------------------------------- #
   # runJob
   # ---------------------------------------------------------------#
-  async def runJob(self, actorId, packet, **kwargs):
+  def runJob(self, actorId, packet):
     actor = self[actorId]
     logger.info(f'### executor, about to run actor, {actor.name}, {packet.jobKey}')
-    try:
-      state = actor.state
-      future = self.getFuture(actor, *packet.args, **packet.kwargs)
-      await future
-      future.result()
-      state = actor.state      
-      if not state.failed:
-        logMsg = f'actor state {state.current} is resolved'      
-        logger.info(f'{actor.name}, {logMsg}, {actorId}')
-        await self.runNext(actorId)
-    except asyncio.CancelledError:
-      state.onError()
-      logMsg = f'actor state {state.current} is canceled'
-      logger.exception(f'{actor.name}, {logMsg}, {actorId}')      
-    except Exception as ex:
-      state.onError()
-      logMsg = f'actor state {state.current} errored'
-      logger.exception(f'{actor.name}, {logMsg}, {actorId}', exc_info=True)
-    finally:
-      return state
+    return self.getFuture(actor, *packet.args, **packet.kwargs)
 
   # -------------------------------------------------------------- #
   # runNext
   # ---------------------------------------------------------------#
-  async def runNext(self, actorId):
-    if self.cache.hasNext(actorId):
+  async def runNext(self, actorId, packet=None):
+    if self.cache.hasNext(actorId, packet):
       packet = self.cache.next(actorId)
       await self.runJob(packet)
 
@@ -167,19 +149,6 @@ class DelegateExecutor(BaseExecutor):
     return result
 
 # -------------------------------------------------------------- #
-# JobMeta
-# ---------------------------------------------------------------#
-class JobMeta:
-  def __init__(self, jmeta):
-    self.__dict__.update(jmeta)
-
-  def __getitem__(self, key):
-    if key in self.__dict__:
-      return self.__dict__[key]
-    else:
-      raise KeyError(f'{key} is not found')
-
-# -------------------------------------------------------------- #
 # JobCache
 # ---------------------------------------------------------------#
 class JobCache:
@@ -191,7 +160,7 @@ class JobCache:
   # -------------------------------------------------------------- #
   # hasNext
   # ---------------------------------------------------------------#
-  def hasNext(self, actorId, packet=None):
+  def hasNext(self, actorId, packet):
     with self.lock:
       if packet: 
         # if active, append to the cache otherwise add the new job 
@@ -222,110 +191,3 @@ class JobCache:
       packet = self.cache[actorId].pop(0)
       self.activeJob[actorId] = packet
       return packet
-
-# -------------------------------------------------------------- #
-# ServiceRegistry
-# ---------------------------------------------------------------#
-class ServiceRegistry():
-	
-  def __init__(self):
-    self._modules = {}
-    self._services = {}
-    
-  # ------------------------------------------------------------ #
-  # isLoaded
-  # -------------------------------------------------------------#
-  def isLoaded(self, serviceName):
-    try:
-      self._services[serviceName]
-    except KeyError:
-      return False
-    else:
-      return True
-
-  # ------------------------------------------------------------ #
-  # loadModules
-  # -------------------------------------------------------------#
-  def loadModules(self, serviceName, serviceRef):
-    self._services[serviceName] = {}
-    for module in serviceRef:
-      self.loadModule(serviceName, module['name'], module['fromList'])
-	
-  # ------------------------------------------------------------ #
-  # _loadModule : wrap load module
-  # -------------------------------------------------------------#
-  def loadModule(self, serviceName, moduleName, fromList):
-    self._services[serviceName][moduleName] = fromList
-    try:
-      self._modules[moduleName]
-    except KeyError:
-      self._loadModule(moduleName, fromList)
-		
-  # ------------------------------------------------------------ #
-  # _loadModule : execute load module
-  # -------------------------------------------------------------#
-  def _loadModule(self, moduleName, fromList):    
-    # reduce moduleName to the related fileName for storage
-    _module = '.'.join(moduleName.split('.')[-2:])
-    logger.info('%s is loaded as : %s' % (moduleName, _module))
-    self._modules[_module] = __import__(moduleName, fromlist=[fromList])
-
-  # ------------------------------------------------------------ #
-  # reloadHelpModule
-  # -------------------------------------------------------------#
-  def reloadHelpModule(self, serviceName, helpModule):
-    try:
-      serviceRef = self._services[serviceName]
-    except KeyError as ex:
-      return ({'status':400,'errdesc':'KeyError','error':str(ex)}, 400)
-    for moduleName in serviceRef:
-      #_module = moduleName.split('.')[-1]
-      _module = '.'.join(moduleName.split('.')[-2:])
-      self._modules[_module] = None
-    if helpModule not in sys.modules:
-      warnmsg = '### support module %s does not exist in sys.modules'
-      logger.warn(warnmsg % helpModule)
-    else:
-      importlib.reload(sys.modules[helpModule])
-    for moduleName, fromList in serviceRef.items():
-      self._loadModule(moduleName, fromList)
-    logger.info('support module is reloaded : ' + helpModule)
-    return {'status': 201,'service': serviceName,'module': helpModule}
-	
-  # ------------------------------------------------------------ #
-  # reloadModule
-  # -------------------------------------------------------------#
-  def reloadModule(self, serviceName, moduleName):
-    try:
-      serviceRef = self._services[serviceName]
-      fromList = serviceRef[moduleName]
-    except KeyError:
-      return self.reloadHelpModule(serviceName,moduleName)
-
-    # reduce moduleName to the related fileName for storage
-    #_module = moduleName.split('.')[-1]
-    _module = '.'.join(moduleName.split('.')[-2:])
-    self._modules[_module] = None
-    importlib.reload(sys.modules[moduleName])    
-    logger.info('%s is reloaded as : %s' % (moduleName, _module))
-    self._modules[_module] = __import__(moduleName, fromlist=[fromList])
-    return {'status': 201,'service': serviceName,'module': moduleName}
-	
-  # ------------------------------------------------------------ #
-  # getClassName
-  # -------------------------------------------------------------#
-  def getClassName(self, classRef):
-
-    if ':' not in classRef:
-      raise ValueError('Invalid classRef %s, expecting module:className' % classRef)
-    moduleName, className = classRef.split(':')
-
-    try:
-      module = self._modules[moduleName]
-    except KeyError:
-      raise Exception('Service module name not found in register : ' + moduleName)
-
-    if not hasattr(module, className):
-      raise Exception('Service classname not found in service register : ' + className)
-    
-    return (module, className)

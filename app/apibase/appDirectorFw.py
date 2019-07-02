@@ -33,9 +33,9 @@ import requests
 logger = logging.getLogger('apipeer.smart')
 
 # -------------------------------------------------------------- #
-# SysCmdUnit
+# Terminal
 # ---------------------------------------------------------------#
-class SysCmdUnit:
+class Terminal:
 
   # ------------------------------------------------------------ #
   # sysCmd
@@ -54,9 +54,9 @@ class SysCmdUnit:
       raise Exception(errmsg)
 
   # ------------------------------------------------------------ #
-  # runProcess
+  # runProc
   # -------------------------------------------------------------#
-  def runProcess(self, sysArgs, cwd=None, stdin=None, stdout=None):
+  def runProc(self, sysArgs, cwd=None, stdin=None, stdout=None):
     
     try:
       scriptname = '%s.%s' % (self.__class__.__module__, self.__class__.__name__)
@@ -81,12 +81,12 @@ class SysCmdUnit:
 # -------------------------------------------------------------- #
 # AppDirector
 # ---------------------------------------------------------------#
-class AppDirector(SysCmdUnit):
+class AppDirector(Terminal):
   __metaclass__ = ABCMeta
 
   def __init__(self, leveldb, actorId):
     self.lock = RLock()
-    self._leveldb = leveldb
+    self.db = leveldb
     self.actorId = actorId
     self.state = AppState(actorId)
     self.resolve = None
@@ -111,71 +111,54 @@ class AppDirector(SysCmdUnit):
         self.apply(*args, **kwargs)
       except Exception as ex:
         logger.error('actor error',exc_info=True)
+      finally:
+        return self.state
 
   # ------------------------------------------------------------ #
   # apply
   # -------------------------------------------------------------#
   def apply(self, *args, **kwargs):
-    if self.state.status == 'STOPPED':
-      try:
+    try:
+      if self.state.status == 'STOPPED':
         self.state.status = 'STARTING'
-        self._start(*args, **kwargs)
+        self.start(*args, **kwargs)
         self.state.status = 'STARTED'
-      except Exception as ex:
-        self.state.failed = True
-        self.state.complete = True
-        self.onError(ex)
-    elif self.state.status == 'STARTED':
-      try:
+      elif self.state.status == 'STARTED':
         self.runApp(*args, **kwargs)
-      except Exception as ex:
-        self.state.failed = True
-        self.state.complete = True
-        self.onError(ex)
+    except Exception as ex:
+      self.state.failed = True
+      self.state.complete = True
+      self.onError(ex)
 
   # -------------------------------------------------------------- #
   # runApp
   # ---------------------------------------------------------------#
   def runApp(self, *args, signal=None, **kwargs):
 
-    try:      
-      state = self.state
-      if state.inTransition and signal is not None:
-        logger.info('%s received signal : %d' % (self.__class__.__name__, signal))
-        state = self.advance(signal)
-        if state.inTransition:
-          logger.info('transition incomplete, multiple signals required ...')
-          # in this case multiple signals are required to resolve the state transition
-          # until all signals are received state.hasNext must remain False
-          return
-        logger.info('state transition resolved by signal : ' + str(signal))
-      while state.hasNext: # complete?
-        logger.info('%s resolving state : %s' % (self.__class__.__name__,state.current))
-        self.state = state = self.resolve[state.current]()
-        if state.inTransition and state.hasSignal: 
-          logger.info('quicken state transition %s ... ' % state.current)
-          self.quicken()
-          break
-        state = self.advance()
-      if state.complete and state.hasSignal:
-        self.quicken()
-    except Exception as ex:
-      self.state.complete = True
-      self.state.failed = True
-      self.onError(ex)
+    state = self.state
+    if state.inTransition and signal is not None:
+      logger.info(f'{self.name} received signal : {signal}')
+      state.advance(signal)
+      if state.inTransition:
+        self.state = state
+        logger.info('transition incomplete, multiple signals required ...')
+        # in this case multiple signals are required to resolve the state transition
+        # until all signals are received state.hasNext must remain False
+        return
+      logger.info('state transition resolved by signal : ' + str(signal))
+    while state.hasNext: # complete?
+      logger.info(f'{self.name} resolving state : {state.current}')
+      state = self.resolve[state.current]()
+      if state.inTransition:
+        break
+      state.advance()
+    self.state = state
 
   # -------------------------------------------------------------- #
   # _start
   # -------------------------------------------------------------- #
   @abstractmethod
-  def _start(self, *args, **kwargs):
-    pass
-
-  # -------------------------------------------------------------- #
-  # advance
-  # -------------------------------------------------------------- #
-  @abstractmethod
-  def advance(self, *args, **kwargs):
+  def start(self, *args, **kwargs):
     pass
 
   # -------------------------------------------------------------- #
@@ -192,13 +175,6 @@ class AppDirector(SysCmdUnit):
   def quicken(self, *args, **kwargs):
     pass
 
-  # -------------------------------------------------------------- #
-  # db
-  # ---------------------------------------------------------------#
-  @property
-  def db(self):
-    return self._leveldb
-
 # -------------------------------------------------------------- #
 # AppState
 # ---------------------------------------------------------------#
@@ -207,14 +183,15 @@ class AppState:
   def __init__(self, actorId=None):
     self.actorId = actorId
     self.complete = False
-    self.current = 'INIT'
+    self.current = 'NULL'
+    self.distributed = False
     self.failed = False
     self.hasNext = False
     self.hasOutput = False
     self.hasSignal = False
     self.inTransition = False
     self.lock = RLock()
-    self.next = 'INIT'
+    self.next = 'NULL'
     self.signalFrom = []
     self.status = 'STOPPED'
 
@@ -229,10 +206,26 @@ class AppState:
     self.failed = True
     self.status = 'FAILED'
 
+  # -------------------------------------------------------------- #
+  # advance
+  # ---------------------------------------------------------------#                                          
+  def advance(self, signal=None):
+    # signal = the http status code of the companion actor method
+    if signal:
+      self.hasSignal = False
+      if signal != 201:
+        logMsg = f'state transition {self.current} failed, got error signal : {signal}'
+        raise Exception(logMsg)
+      logger.info(f'{self.current} is resolved, advancing ...')
+      self.inTransition = False
+      self.hasNext = True
+    if self.hasNext:
+      self.current = self.next
+
 # -------------------------------------------------------------- #
 # AppResolvar
 # ---------------------------------------------------------------#
-class AppResolvar(SysCmdUnit):
+class AppResolvar(Terminal):
 
   @property
   def name(self):
@@ -243,7 +236,7 @@ class AppResolvar(SysCmdUnit):
     if key in self.__dict__:
       return self.__dict__[key]
     elif not hasattr(self, key):
-      raise AttributeError(f'{key} is not an attribute of {self.__class__.__name__}')
+      raise AttributeError(f'{key} is not an attribute of {self.name}')
     method = getattr(self, key)
     self.__dict__[key] = method
     return method
@@ -263,22 +256,29 @@ class AppResolvar(SysCmdUnit):
   def __repr__(self):
       return repr(self.__dict__)
 
-# -------------------------------------------------------------- #
-# AppListener
-# ---------------------------------------------------------------#
-class AppListener:
-  __metaclass__ = ABCMeta
-
-  def __init__(self, leveldb, caller):
-    self._leveldb = leveldb
-    self.caller = caller
-
   # -------------------------------------------------------------- #
-  # addJobs - add a list of live job ids
+  # runQuery
   # ---------------------------------------------------------------#
-  @abstractmethod
-  def register(self, *args, **kwargs):
-    pass
+  def runQuery(self, packet, metaItem=None):
+    if not hasattr(self, 'jmeta'):
+      raise Exception('runQuery requires a job meta object : jmeta')
+    if not metaItem:
+      logger.info(f'runQuery, metaKey : {packet.metaKey}')
+      metaItem = self.jmeta[packet.metaKey]
+    args = ['SAAS',packet.typeKey] + metaItem.split('/')
+    dbKey = '|'.join(args)
+    try:
+      result = self._leveldb[dbKey]
+      try:
+        packet.itemKey
+        logger.info('### xform meta key : ' + packet.itemKey)
+        return result[packet.itemKey]
+      except AttributeError:
+        return result
+    except KeyError:
+      logMsg = f'saas meta item not found. dbKey : {dbKey}'
+      logger.warn(logMsg)
+      raise Exception(logMsg)
 
 # -------------------------------------------------------------- #
 # ApiConnectError
@@ -290,9 +290,9 @@ class ApiConnectError(Exception):
 # apiStatus
 # ---------------------------------------------------------------#
 def apiStatus(func):
-  def wrapper(self, *args, **kwargs):
+  def wrapper(obj, *args, **kwargs):
     try:
-      return func(self, *args, **kwargs)
+      return func(obj, *args, **kwargs)
     except HTTPError as ex:
       raise Exception('api request failed\nHttp error : ' + str(ex))
     except (ConnectionError, NewConnectionError, ConnectTimeoutError, MaxRetryError) as ex:
@@ -331,32 +331,14 @@ class ApiRequest:
     return self.conn.put(*args, **kwargs)
 
 # -------------------------------------------------------------- #
-# MetaReader
+# JobMeta
 # ---------------------------------------------------------------#
-class MetaReader:
-  __metaclass__ = ABCMeta
+class JobMeta:
+  def __init__(self, jmeta):
+    self.__dict__.update(jmeta)
 
   def __getitem__(self, key):
+    if key in self.__dict__:
       return self.__dict__[key]
-
-  def __setitem__(self, key, value):
-      self.__dict__[key] = value
-
-  def __delitem__(self, key):
-      del self.__dict__[key]
-
-  def __contains__(self, key):
-      return key in self.__dict__
-
-  def __len__(self):
-      return len(self.__dict__)
-
-  def __repr__(self):
-      return repr(self.__dict__)
-     
-  # -------------------------------------------------------------- #
-  # getProgramMeta
-  # ---------------------------------------------------------------#
-  @abstractmethod
-  def getProgramMeta(self):
-    pass
+    else:
+      raise KeyError(f'{key} is not found')
