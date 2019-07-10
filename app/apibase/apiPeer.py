@@ -297,7 +297,7 @@ class ApiPeer:
     else:
       site = web.TCPSite(runner, '127.0.0.1', port)
 
-    logger.info(f'Serving app on https://localhost:{port}')
+    logger.info(f'Serving app on http://localhost:{port}')
     await site.start()
 
     return runner
