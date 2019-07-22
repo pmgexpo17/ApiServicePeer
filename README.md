@@ -1,7 +1,7 @@
 # ApiServicePeer
 A python peer-to-peer framework for hosting api services for cloud apps integration
 
-Note : this for proof of concept prototype version. The enterprise prototype version is available by consultation
+Note : this is a proof of concept prototype version. The enterprise prototype version is available by consultation
 
 Core design feature : A [UML sequence diagram](http://www.agilemodeling.com/artifacts/sequenceDiagram.htm) of a distributed program is converted to a micro-services collection installed by docker in a server cluster. The code here only documents the micro services part. The front-end web app for UML conversion is currently in development.
 
