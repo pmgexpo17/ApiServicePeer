@@ -85,13 +85,13 @@ class Resolvar(AppResolvar):
   # -------------------------------------------------------------- #  
   @iterate('clientB')
   def DOWNLOAD_ZIPFILE(self):
-    self.downloadJsonFile()
+    self.downloadZipfile()
     self.uncompressFile()
 
   # -------------------------------------------------------------- #
-  # downloadJsonFile
+  # downloadZipfile
   # ---------------------------------------------------------------#
-  def downloadJsonFile(self):
+  def downloadZipfile(self):
     jpacket = {'metaKey':'repoMeta','typeKey':'REPO'}
     repoMeta = self.runQuery(JobMeta(jpacket))
 
