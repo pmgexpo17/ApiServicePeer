@@ -91,7 +91,7 @@ class Resolvar(AppResolvar):
   # -------------------------------------------------------------- #  
   @iterate('clientB')
   def DOWNLOAD_ZIPFILE(self):
-    self.downloadJsonFile()
+    self.putJsonFileMeta()
 
   # -------------------------------------------------------------- #
   # FINAL_HANDSHAKE
@@ -101,9 +101,9 @@ class Resolvar(AppResolvar):
     pass
 
   # -------------------------------------------------------------- #
-  # downloadJsonFile
+  # putJsonFileMeta
   # ---------------------------------------------------------------#
-  def downloadJsonFile(self):
+  def putJsonFileMeta(self):
     # the itemKey context is opposite, to check if the applied category 
     # exists in registered consumerCategories
     jpacket = {'eventKey':f'REPO|{self.jobId}','itemKey':'jsonToCsv'}
