@@ -21,8 +21,8 @@ class DatastreamReader(Microservice, Terminal):
       1. _leveldb : key-value datastore
   '''
   #------------------------------------------------------------------#
-	# runActor
-	#------------------------------------------------------------------#
+  # runActor
+  #------------------------------------------------------------------#
   async def runActor(self, jobId, taskNum, **kwargs):   
     logger.info(f'### {self.name} is called ... ###')
     await self.readFile(jobId, taskNum)
