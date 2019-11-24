@@ -1,21 +1,22 @@
-__all__ = ('promote', 'iterate')
+__all__ = ['promote', 'iterate']
 
 from functools import wraps
+import asyncio
 
 promoteFw = {
   'serviceA-promote':{
     'NORMALISE_CSV':
-      [{'jobId': 'j190306100703', 'caller': 'serviceA', 'actor': 'microA:normalise', 'args': ['j190306100703'], 'kwargs': {'hhGroupSize': 4}}, 'http://localhost:5000/api/v1/multi/4'],
+      {'jobId': 'j191017140814', 'typeKey': 'MicroserviceA', 'actor': 'microA:normalise', 'synchronous': True, 'taskRange': 4, 'caller': {'jobId': 'j191017140814', 'actor': 'serviceA', 'typeKey': 'Service'}},
     'COMPILE_JSON':
-      [{'jobId': 'j190306100703', 'caller': 'serviceA', 'actor': 'microA:compile', 'args': ['j190306100703']}, 'http://localhost:5000/api/v1/multi/1'],
-    'COMPOSE_JSFILE':
-      [{'jobId': 'j190306100703', 'caller': 'serviceA', 'actor': 'microA:compose', 'args': ['j190306100703']}, 'http://localhost:5000/api/v1/multi/1'],
+      {'jobId': 'j191017140814', 'typeKey': 'MicroserviceA', 'actor': 'microA:compile', 'synchronous': True, 'taskRange': 1, 'caller': {'jobId': 'j191017140814', 'actor': 'serviceA', 'typeKey': 'Service'}},
     'FINAL_HANDSHAKE':
-      [{'jobId': 'j190306100703', 'caller': 'serviceA', 'actor': 'clientB', 'args': ['j190306100703']}, 'http://localhost:5000/api/v1/smart'],
+      {'jobId': 'j191017140814', 'typeKey': 'Service', 'actor': 'clientB', 'synchronous': True, 'caller': {'jobId': 'j191017140814', 'actor': 'serviceA', 'typeKey': 'Service'}},
   },
   'clientB-promote':{
     'DOWNLOAD_ZIPFILE':
-      [{'jobId': 'j190306100703', 'caller': 'clientB', 'actor': 'serviceA', 'args': ['j190306100703']}, 'http://localhost:5000/api/v1/smart'],
+      {'jobId': 'j191017140814', 'typeKey': 'MicroserviceB', 'actor': 'microB:streamreader', 'synchronous': True, 'taskRange': 1, 'caller': {'jobId': 'j191017140814', 'actor': 'clientB', 'typeKey': 'Service'}},
+    'FINAL_HANDSHAKE':
+      {'jobId': 'j191017140814', 'typeKey': 'Service', 'actor': 'serviceA', 'synchronous': True, 'caller': {'jobId': 'j191017140814', 'actor': 'clientB', 'typeKey': 'Service'}},
   },
 }
 
@@ -27,32 +28,28 @@ class promote:
   def __call__(self, func):
     @wraps(func)
     def wrapper(obj, *args, **kwargs):
-      ''' this decorator applies framework compiled state metadata
-          to enable state machine iteration according an original 
-          UML state diagram'''
       obj._quicken = {}
-      obj._quicken.update(self.metaFw)
-      return func(obj, *args, **kwargs)
+      for key, value in self.metaFw.items():
+        obj._quicken[key] = value
+      func(obj, *args, **kwargs)
     return wrapper
 
 iterateFw = {
   'serviceA-iterate':{
-    'EVAL_XFORM_META':
-      {'inTransition': False, 'hasSignal': False, 'next': 'NORMALISE_CSV', 'hasNext': True},
     'NORMALISE_CSV':
-      {'inTransition': True, 'hasSignal': False, 'next': 'COMPILE_JSON', 'hasNext': False},
+      {'inTransition': True, 'hasSignal': False, 'next': 'COMPILE_JSON', 'hasNext': False, 'signalFrom': ['DatastoreA', 'MicroserviceA']},
     'COMPILE_JSON':
-      {'inTransition': True, 'hasSignal': False, 'next': 'COMPOSE_JSFILE', 'hasNext': False},
-    'COMPOSE_JSFILE':
-      {'inTransition': True, 'hasSignal': False, 'next': 'FINAL_HANDSHAKE', 'hasNext': False},
+      {'inTransition': True, 'hasSignal': False, 'next': 'REMOVE_WORKSPACE', 'hasNext': False, 'signalFrom': ['DatastoreA', 'MicroserviceA']},
     'FINAL_HANDSHAKE':
-      {'inTransition': True, 'hasSignal': False, 'next': 'REMOVE_WORKSPACE', 'hasNext': False},
+      {'inTransition': True, 'hasSignal': True, 'next': 'REMOVE_WORKSPACE', 'hasNext': False, 'signalFrom': []},
     'REMOVE_WORKSPACE':
-      {'inTransition': False, 'hasSignal': False, 'next': 'NULL', 'hasNext': False, 'complete': True},
+      {'inTransition': False, 'hasSignal': False, 'next': 'NULL', 'hasNext': False, 'complete': True, 'signalFrom': []},
   },
   'clientB-iterate':{
     'DOWNLOAD_ZIPFILE':
-      {'inTransition': False, 'hasSignal': True, 'next': 'NULL', 'hasNext': False, 'complete': True},
+      {'inTransition': True, 'hasSignal': False, 'next': 'FINAL_HANDSHAKE', 'hasNext': False, 'complete': False, 'signalFrom': ['DatastreamA', 'MicroserviceB']},
+    'FINAL_HANDSHAKE':
+      {'inTransition': False, 'hasSignal': True, 'next': 'NULL', 'hasNext': False, 'complete': True, 'signal': 201, 'signalFrom': []},
   },
 }
 
@@ -64,10 +61,16 @@ class iterate:
   def __call__(self, func):
     @wraps(func)
     def wrapper(obj, *args, **kwargs):
-      ''' this decorator applies framework compiled state metadata
-          to enable state machine iteration according an original
-          UML state diagram'''
-      obj.state.__dict__.update(self.metaFw[func.__name__])
-      func(obj, *args, **kwargs)
-      return obj.state
+      if asyncio.iscoroutinefunction(func):
+        return func(obj, *args, **kwargs)
+      f = asyncio.Future()
+      try:
+        func(obj, *args, **kwargs)
+        obj.state.__dict__.update(self.metaFw[func.__name__])
+      except Exception as ex:
+        f.set_exception(ex)
+      else:
+        f.set_result(obj.state)
+      finally:
+        return f
     return wrapper
