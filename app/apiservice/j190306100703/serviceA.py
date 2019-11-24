@@ -2,44 +2,42 @@
 #
 # Copyright (c) 2018 Peter A McGill
 #
-from apibase import AppDirector, ApiRequest, AppResolvar, JobMeta
-from apiservice.j190306100703 import promote, iterate
+from apibase import AppCooperator, TaskError
+from . import promote, iterate
 import logging
 
-logger = logging.getLogger('apipeer.smart')
+logger = logging.getLogger('asyncio.smart')
 
 # -------------------------------------------------------------- #
 # ServiceA
 # ---------------------------------------------------------------#
-class ServiceA(AppDirector):
-  def __init__(self, leveldb, actorId):
-    super().__init__(leveldb, actorId)
-    self._type = 'director'
+class ServiceA(AppCooperator):
+  def __init__(self, actorId):
+    super().__init__(actorId)
     self.state.hasNext = True
-    self.resolve = Resolvar(leveldb)
-    self.resolve.state = self.state
-    self.request = ApiRequest()
+    self.resolve = None
 
   # -------------------------------------------------------------- #
   # __getitem__
   # ---------------------------------------------------------------#
   def __getitem__(self, key):
+    if key in self._quicken:
+      return self._quicken[key]
     if key in self.__dict__:
       return self.__dict__[key]
-    elif key in self._quicken:
-      return self._quicken[key]
-    raise TypeError(f'{self.name}, {key} does not exist in obj properties')
+    raise TypeError(f'{key} is not a valid {self.name} attribute')
 
   # -------------------------------------------------------------- #
   # start
   # ---------------------------------------------------------------#
   @promote('serviceA')
   def start(self, jobId, jobMeta, **kwargs):
-    logger.info(f'{self.name}.start ...')
+    logger.info(f'{self.name} is starting ...')
     self.jobId = jobId
-    self.hostName = jobMeta['hostName']
+    self.resolve = Resolvar()
+    self.resolve.state = self.state    
     self.resolve.start(jobId, jobMeta)
-
+     
   # -------------------------------------------------------------- #
   # onError
   # ---------------------------------------------------------------#
@@ -54,40 +52,47 @@ class ServiceA(AppDirector):
     logMsg = f'{logMsg}\nActor, {actorName}, {actorId},'
     logger.error(logMsg, exc_info=True)
 
+  # -------------------------------------------------------------- #
+  # destroy
+  # -------------------------------------------------------------- #
+  def destroy(self, *args, **kwargs):
+    pass
+
+  # -------------------------------------------------------------- #
+  # stop
+  # -------------------------------------------------------------- #
+  def stop(self, *args, **kwargs):
+    pass
+
 # The MIT License
 #
 # Copyright (c) 2018 Peter A McGill
 #
-from apitools.csvxform import XformMetaPrvdr
-import datetime
-import os, sys
-import simplejson as json
+from apibase import AppResolvar, Note, TaskError
+from datetime import datetime
+from .component import activate
+import os
 
 # -------------------------------------------------------------- #
 # Resolvar
 # ---------------------------------------------------------------#
 class Resolvar(AppResolvar):
 
-  def __init__(self, leveldb):
-    self._leveldb = leveldb
-    self.request = ApiRequest()
-
   # -------------------------------------------------------------- #
   # start
   # ---------------------------------------------------------------#
   def start(self, jobId, jobMeta):
-    self.state.current = 'EVAL_XFORM_META'
+    if jobMeta.firstState:
+      self.state.current = jobMeta.firstState
+    else:
+      self.state.current = 'NORMALISE_CSV'
+    logger.info(f'{self.name}, first state : {self.state.current}')
     self.jobId = jobId
     self.jmeta = jobMeta
     self.hostName = jobMeta.hostName
+    logger.info(f'{self.name}, activating the microservices component module ...')
+    activate()
     logger.info(f'{self.name}, starting job {self.jobId} ...')
-
-  # -------------------------------------------------------------- #
-  # NORMALISE_CSV
-  # -------------------------------------------------------------- #  
-  @iterate('serviceA')
-  def EVAL_XFORM_META(self):
-    self.evalXformMeta()
 
   # -------------------------------------------------------------- #
   # NORMALISE_CSV
@@ -95,20 +100,13 @@ class Resolvar(AppResolvar):
   @iterate('serviceA')
   def NORMALISE_CSV(self):
     self.evalSysStatus()
-    self.putXformMeta()
+    #self.putXformMeta()
 
   # -------------------------------------------------------------- #
   # COMPILE_JSON
   # -------------------------------------------------------------- #  
   @iterate('serviceA')
   def COMPILE_JSON(self):
-    pass
-
-  # -------------------------------------------------------------- #
-  # COMPOSE_JSFILE
-  # -------------------------------------------------------------- #  
-  @iterate('serviceA')
-  def COMPOSE_JSFILE(self):
     self.putJsonFileMeta()
 
   # -------------------------------------------------------------- #
@@ -116,7 +114,7 @@ class Resolvar(AppResolvar):
   # -------------------------------------------------------------- #  
   @iterate('serviceA')
   def FINAL_HANDSHAKE(self):
-    pass
+    self.compressFile()
 
   # -------------------------------------------------------------- #
   # REMOVE_WORKSPACE
@@ -126,130 +124,106 @@ class Resolvar(AppResolvar):
     self.removeWorkSpace()
 
   # -------------------------------------------------------------- #
-  # evalXformMeta -
-  # ---------------------------------------------------------------#
-  def evalXformMeta(self):
-    jpacket = {'metaKey':'xformMeta','typeKey':'XFORM','itemKey':'csvToJson'}
-    repoMeta = self.runQuery(JobMeta(jpacket))
-
-    metaFile = repoMeta['repoName'] + '/' + repoMeta['xformMeta']
-    logger.info('xform meta file : ' + metaFile)
-    if not os.path.exists(metaFile):
-      errmsg = 'xform meta file does not exist : %s' % metaFile
-      raise Exception(errmsg)
-
-    try:
-      xformMeta = XformMetaPrvdr()
-      xformMeta.load(metaFile)
-      xformMeta.validate('csvToJson')
-    except Exception as ex:
-      errmsg = '%s, xformMeta validation failed\nError : %s' % (repoMeta['xformMeta'], str(ex))
-      raise Exception(errmsg)
-    self.rootName = xformMeta.getRootName()
-    dbKey = '%s|XFORM|rootname' % self.jobId
-    self._leveldb[dbKey] = self.rootName
-    self.xformMeta = xformMeta
-
-  # -------------------------------------------------------------- #
   # evalSysStatus
   # ---------------------------------------------------------------#
   def evalSysStatus(self):
-    jpacket = {'metaKey':'repoMeta','typeKey':'REPO'}
-    repoMeta = self.runQuery(JobMeta(jpacket))
+    jpacket = {'eventKey':f'REPO|{self.jobId}','itemKey':'csvToJson'}
+    repo = self.query(Note(jpacket))
     
-    if not os.path.exists(repoMeta['sysPath']):
-      errmsg = 'xform input path does not exist : ' + repoMeta['sysPath']
-      raise Exception(errmsg)
+    apiBase = self._leveldb['apiBase']
+    sysPath = f'{apiBase}/{repo.sysPath}'
+    if not os.path.exists(sysPath):
+      errmsg = f'xform input path does not exist : {sysPath}'
+      raise TaskError(errmsg)
     
     catPath = self.jmeta.category
-    if catPath not in repoMeta['consumer categories']:
+    if catPath not in repo.consumerCategories:
       errmsg = 'consumer category branch %s does not exist under %s' \
-                                % (catPath, str(repoMeta['consumer categories']))
-      raise Exception(errmsg)
+                                % (catPath, str(repo.consumerCategories))
+      raise TaskError(errmsg)
   
-    repoPath = '%s/%s' % (repoMeta['sysPath'], catPath)
+    repoPath = f'{sysPath}/{catPath}'
     logger.info('input zipfile repo path : ' + repoPath)
 
-    #inputZipFile = self.jobId + '.tar.gz'
-    inputZipFile = '%s.%s' % (self.jobId, self.jmeta.fileExt)
+    inputZipFile = f'{self.jobId}.{self.jmeta.fileExt}'
     logger.info('input zipfile : ' + inputZipFile)
 
-    zipFilePath = '%s/%s' % (repoPath, inputZipFile)
+    zipFilePath = f'{repoPath}/{inputZipFile}'
     if not os.path.exists(zipFilePath):
       errmsg = 'xform input zipfile does not exist in source repo'
-      raise Exception(errmsg)
+      raise TaskError(errmsg)
 
-    if not os.path.exists(self.jmeta.workSpace):
-      errmsg = 'xform workspace path does not exist : ' + self.jmeta.workSpace
-      raise Exception(errmsg)
+    workbase = f'{apiBase}/{self.jmeta.workspace}'
+    if not os.path.exists(workbase):
+      errmsg = f'xform workspace path does not exist : {workbase}'
+      raise TaskError(errmsg)
 
-    tsXref = datetime.datetime.now().strftime('%y%m%d%H%M%S')
+    tsXref = datetime.now().strftime('%y%m%d%H%M%S')
 
-    workSpace = '%s/%s' % (self.jmeta.workSpace, tsXref)
-    logger.info('session workspace : ' + workSpace)
+    workspace = f'{workbase}/{tsXref}'
+    logger.info('session workspace : ' + workspace)
     logger.info('creating session workspace ... ')
 
     try:
-      cmdArgs = ['mkdir','-p',workSpace]      
+      cmdArgs = ['mkdir','-p',workspace]      
       self.sysCmd(cmdArgs)
-    except Exception as ex:
-      logger.error('%s, workspace creation failed' % self.jobId)
+    except TaskError as ex:
+      logger.error(f'{self.jobId}, workspace creation failed')
       raise
 
     try:
-      cmdArgs = ['cp',zipFilePath,workSpace]
-      self.sysCmd(cmdArgs)
-    except Exception as ex:
-      logger.error('%s, copy to workspace failed' % inputZipFile)
+      self.sysCmd(['cp',zipFilePath,workspace])
+    except TaskError as ex:
+      logger.error(f'zipfile copy to workspace failed : {zipFilePath}')
       raise
 
     try:
       cmdArgs = ['tar','-xzf',inputZipFile]
-      self.sysCmd(cmdArgs,cwd=workSpace)
-    except Exception as ex:
-      logger.error('%s, gunzip tar extract command failed' % inputZipFile)
+      self.sysCmd(cmdArgs,cwd=workspace)
+    except TaskError as ex:
+      logger.error(f'{inputZipFile}, gunzip tar extract command failed')
       raise
 
-    # put workspace path in storage for subprocess access
-    dbKey = '%s|workspace' % self.jobId
-    self._leveldb[dbKey] = workSpace
-    self.workSpace = workSpace
-
-  # -------------------------------------------------------------- #
-  # putXformMeta
-  # ---------------------------------------------------------------#
-  def putXformMeta(self):
-    # put the json schema metainfo to storage for retrieval by workers
-    for metaIndex, nodeName in enumerate(self.xformMeta.nodeNames):
-      metaIndex += 1
-      csvMeta = self.xformMeta.get(nodeName)
-      dbKey = '%s|XFORM|META|%d' % (self.jobId, metaIndex)
-      self._leveldb[dbKey] = csvMeta
-      dbKey = '%s|XFORM|META|%s' % (self.jobId, nodeName)
-      self._leveldb[dbKey] = csvMeta
-      logger.info('csvToJson %s meta index : %d' % (nodeName, metaIndex))
-      logger.info('%s meta item : %s ' % (nodeName, str(csvMeta)))
-    self.jobRange = metaIndex
+    # put workspace path in storage for micro-service access
+    dbKey = f'{self.jobId}|workspace'
+    self._leveldb[dbKey] = workspace
+    self.workspace = workspace
 
   # -------------------------------------------------------------- #
   # putJsonFileMeta
   # ---------------------------------------------------------------#
   def putJsonFileMeta(self):
     jsonFile = self.jobId + '.json'
-    dbKey = '%s|OUTPUT|jsonFile' % self.jobId
+    dbKey = f'{self.jobId}|output|jsonFile'
     self._leveldb[dbKey] = jsonFile
 
   # -------------------------------------------------------------- #
-  # makeZipFile
+  # compressFile
+  # ---------------------------------------------------------------#
+  def compressFile(self):
+    logger.info(f'{self.name}, gziping {self.jobId}.json ...')
+
+    dbKey = f'{self.jobId}|workspace'
+    workspace = self._leveldb[dbKey]
+
+    jsonFile = self.jobId + '.json'
+    self.sysCmd(['gzip',jsonFile],cwd=workspace)
+    dbKey = f'{self.jobId}|datastream|infile'
+    self._leveldb[dbKey] = jsonFile + '.gz'
+    dbKey = f'{self.jobId}|datastream|workspace'
+    self._leveldb[dbKey] = workspace
+
+  # -------------------------------------------------------------- #
+  # removeWorkSpace
   # ---------------------------------------------------------------#
   def removeWorkSpace(self):
-    logger.info('removing %s workspace ...' % self.jobId)
-    dbKey = '%s|workspace' % self.jobId
-    self.workSpace = self._leveldb[dbKey]
-    cmdArgs = ['rm','-rf',self.workSpace]
+    logger.info(f'ATTN. NOT removing {self.jobId} workspace ...')
     try:
-      self.sysCmd(cmdArgs)
-      logger.info('%s workspace is removed' % self.jobId)      
-    except Exception as ex:
-      logger.error('%s, workspace removal failed' % self.jobId)
+      return
+      dbKey = f'{self.jobId}|workspace'
+      workspace = self._leveldb[dbKey]
+      self.sysCmd(['rm','-rf',workspace])
+      logger.info(f'ATTN. {self.jobId} workspace is now removed : {workspace}')
+    except TaskError as ex:
+      logger.error(f'workspace {self.jobId} removal failed')
       raise
