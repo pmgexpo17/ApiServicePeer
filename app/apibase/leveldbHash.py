@@ -82,21 +82,19 @@ class LeveldbHash():
     self._leveldb.Delete(key.encode())
 
   #----------------------------------------------------------------#
-  # bytes
-  # restores a bytes or bytearray value
+  # _bytes
+  # returns the raw bytes or bytearray value
   #----------------------------------------------------------------#		
-  def bytes(self, key):
+  def _bytes(self, key):
     return self._leveldb.Get(key.encode())
 
   #----------------------------------------------------------------#
   # put
   #----------------------------------------------------------------#		
-  def put(self, key, value, sync=False):
+  def put(self, key, value):
     with self._lock:
-      if not isinstance(value, (bytes, bytearray)):
-        # use pickle to handle any kind of object value
-        value = pickle.dumps(value, self._protocol)
-      self._leveldb.Put(key.encode(), value, sync=sync)
+      bValue = pickle.dumps(value, self._protocol)
+      self._leveldb.Put(key.encode(), bValue)
 
   #----------------------------------------------------------------#
   # select
