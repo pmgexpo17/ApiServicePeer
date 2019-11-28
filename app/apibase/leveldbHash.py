@@ -101,7 +101,8 @@ class LeveldbHash():
   #----------------------------------------------------------------#		
   def put(self, key, value):
     with self._lock:
-      if not isinstance(value, (bytes, bytearray)):
+      bValue = value
+      if not isinstance(bValue, (bytes, bytearray)):
         bValue = pickle.dumps(value, self._protocol)
       self._leveldb.Put(key.encode(), bValue)
 
