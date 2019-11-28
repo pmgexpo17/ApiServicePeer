@@ -73,7 +73,7 @@ class LeveldbHash():
   # __setitem__
   #----------------------------------------------------------------#		
   def __setitem__(self, key, value):
-    self.put(key,value)
+    self._put(key,value)
     
   #----------------------------------------------------------------#
   # __delitem__
@@ -91,9 +91,18 @@ class LeveldbHash():
   #----------------------------------------------------------------#
   # put
   #----------------------------------------------------------------#		
-  def put(self, key, value):
+  def _put(self, key, value):
     with self._lock:
       bValue = pickle.dumps(value, self._protocol)
+      self._leveldb.Put(key.encode(), bValue)
+
+  #----------------------------------------------------------------#
+  # put - if value is already bytes or bytearray
+  #----------------------------------------------------------------#		
+  def put(self, key, value):
+    with self._lock:
+      if not isinstance(value, (bytes, bytearray)):
+        bValue = pickle.dumps(value, self._protocol)
       self._leveldb.Put(key.encode(), bValue)
 
   #----------------------------------------------------------------#
