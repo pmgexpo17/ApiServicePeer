@@ -24,17 +24,43 @@ from threading import RLock
 import leveldb
 import pickle
 import os, sys
+import subprocess
+
+try:
+  DEFAULT_PROTOCOL = pickle.DEFAULT_PROTOCOL
+except AttributeError:
+  DEFAULT_PROTOCOL = pickle.HIGHEST_PROTOCOL
 
 # ---------------------------------------------------------------------------#
 # LeveldbHash
 # ---------------------------------------------------------------------------#    
 class LeveldbHash():
-  def __init__(self, dbPath, pickleProtocol=pickle.HIGHEST_PROTOCOL):
+  db = None
+
+  def __init__(self, dbPath, pickleProtocol=DEFAULT_PROTOCOL):
     if not os.path.exists(dbPath):
       raise Exception('leveldb directory does not exist : ' + dbPath)
     self._leveldb = leveldb.LevelDB(dbPath)
     self._protocol = pickleProtocol
     self._lock = RLock()
+
+  @classmethod
+  def get(cls):
+    return cls.db
+
+  @classmethod
+  def startFw(cls, apiBase, dbPath=None):
+    if not cls.db:
+      if not dbPath:
+        dbPath = f'{apiBase}/database/metastore'
+      if not os.path.exists(dbPath):
+        subprocess.call(['mkdir','-p',dbPath])
+      cls.db = cls(dbPath)
+      cls.db['apiBase'] = apiBase
+
+  @property
+  def name(self):
+    return f'{self.__class__.__name__}-{self.hhId}'
 
   #----------------------------------------------------------------#
   # __getitem__
@@ -73,23 +99,11 @@ class LeveldbHash():
       self._leveldb.Put(key.encode(), value, sync=sync)
 
   #----------------------------------------------------------------#
-  # getBatch
-  #----------------------------------------------------------------#		
-  def getBatch(self):
-    return self._leveldb.WriteBatch()
-
-  #----------------------------------------------------------------#
-  # putBatch
-  #----------------------------------------------------------------#		
-  def putBatch(self, batch, sync=True):
-    return self._leveldb.Write(batch, sync=sync)
-
-  #----------------------------------------------------------------#
   # select
   #----------------------------------------------------------------#		
   def select(self, startKey, endKey, incValue=True):
     dbIter = self._leveldb.RangeIter(startKey.encode(), endKey.encode(), include_value=incValue)
-    return ResultSet(dbIter, incValue)
+    return ResultSet.make(dbIter, incValue)
 
 #----------------------------------------------------------------#
 # ResultSet
@@ -97,14 +111,20 @@ class LeveldbHash():
 class ResultSet():
   def __init__(self, dbIter, incValue):
     self.dbIter = dbIter
-    self.__next__ = self.__nextVal if incValue else self.__nextKey
+    self.__next = self.__nextVal if incValue else self.__nextKey
 
-  def __iter__(self):
-    return self
+  @classmethod
+  def make(cls, dbIter, incValue):
+    resultSet = cls(dbIter, incValue)
+    while True:
+      try:
+        yield resultSet.__next()
+      except StopIteration:      
+        break
 
   def __nextVal(self):
     key, value = self.dbIter.__next__()
-    return (key.decode(), pickle.loads(value)) 
+    return pickle.loads(value)
 
   def __nextKey(self):
     key = self.dbIter.__next__()
