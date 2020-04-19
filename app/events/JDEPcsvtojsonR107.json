@@ -1,0 +1,26 @@
+{
+  "eventKey" : "JDEP|csvtojsonR107",
+  "metaDoc" : {
+    "jobId": "csvtojsonR107",
+    "desc" : "data conversion service",
+    "projectId": "dataconvertA1",
+    "eventKey": "JGEN|csvtojsonR107",
+    "jenviron": "DEV",
+    "generator" : "apitools.generator:JobGeneratorA1",
+    "dependency" : ["JDEP|datastreamR100"],
+    "make": {
+      "mode": "DEV",
+      "build": "rebuild",
+      "copy": "replace",
+      "render": "render",
+      "cleanup" : true
+    },
+    "assets": {
+      "subPath" : "component/assets",
+      "metaFiles" : [
+        "REPOcsvtojsonR107.json"    
+      ]
+    },
+    "reload": []
+  }
+}

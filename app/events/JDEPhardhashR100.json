@@ -1,0 +1,21 @@
+{
+  "eventKey" : "JDEP|jhardhashR100",
+  "metaDoc" : {
+    "jobId": "jhardhashR100",
+    "desc" : "hardhash datastore service",    
+    "projectId": "dataconvertA1",
+    "eventKey": "JGEN|jhardhashR100",
+    "jenviron": "DEV",
+    "generator" : "project.build:JobGeneratorB1",
+    "dependency": [],
+    "make": {
+      "mode": "DEV",
+      "build": "rebuild",
+      "copy": "replace",
+      "render": "render",
+      "resourcePath" : null,
+      "cleanup" : true
+    },
+    "reload": []
+  }
+}

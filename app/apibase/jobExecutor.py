@@ -1,80 +1,95 @@
-from concurrent.futures import FIRST_EXCEPTION
+__all__ = ('BaseExecutor','AdhocExecutor','ServiceExecutor','MicroserviceExecutor')
+
+from apibase import Article
+from concurrent.futures import ThreadPoolExecutor, FIRST_EXCEPTION
 from functools import partial
-from threading import RLock
-from apibase import JobMeta
 import asyncio
+import inspect
 import logging
-import sys
-import uuid
+import os, sys
 
-logger = logging.getLogger('apipeer.server')
-slogger = logging.getLogger('apipeer.smart')
-
-# -------------------------------------------------------------- #
-# JobExecutor
-# ---------------------------------------------------------------#
-class JobExecutor:
-  def __init__(self):
-    self._exec = {}
-    self._exec['director'] = DirectorExecutor()
-    self._exec['delegate'] = DelegateExecutor()
-    self._exec['adhoc'] = AdhocExecutor()
-
-  def __getitem__(self, actorId):
-    return self._exec['director'][actorId]
-
-  def __setitem__(self, actorId, actor):
-    self._exec['director'][actorId] = actor
-
-  def __delitem__(self, actorId):
-    del self._exec['director'][actorId]
-
-  def runJob(self, actorType, *args, **kwargs):
-    return self._exec[actorType].runJob(*args, **kwargs)
-
-  def shutdown(self):
-    self._exec['director'].shutdown()
-    self._exec['delegate'].shutdown()
+# default task logger
+logger = logging.getLogger('asyncio.server')
 
 # -------------------------------------------------------------- #
 # BaseExecutor
 # ---------------------------------------------------------------#
 class BaseExecutor:
-  """
-  Runs coroutines conventionally, or functions by the event loop default executor.
-  """
-  def __init__(self):
-    self.eventloop = asyncio.get_event_loop()
+  _eventloop = None  
+
+  def __init__(self, demandFactor=10):
+    poolsize = len(os.sched_getaffinity(0)) * demandFactor
+    self.executor = ThreadPoolExecutor(poolsize)
+
+  # -------------------------------------------------------------- #
+  # name
+  # ---------------------------------------------------------------#
+  @property
+  def name(self):
+    return f'{self.__class__.__name__}'
+
+  # -------------------------------------------------------------- #
+  # get
+  # ---------------------------------------------------------------#
+  @classmethod
+  def get(cls):
+    return cls._instance
+
+  # -------------------------------------------------------------- #
+  # start
+  # ---------------------------------------------------------------#
+  @staticmethod
+  def __start__():
+    BaseExecutor._eventloop = asyncio.get_event_loop()
 
   # -------------------------------------------------------------- #
   # getFuture
   # ---------------------------------------------------------------#
   def getFuture(self, actor, *args, **kwargs):
 
-    logger.info(f'running future: actor, args, kwargs : {actor}, {args}, {kwargs}')
-    if asyncio.iscoroutine(actor):
-      # a task is a future-like object that runs a coroutine
-      return asyncio.create_task(actor(*args, **kwargs))
-    return self.eventloop.run_in_executor(None, partial(actor, *args, **kwargs))
+    if asyncio.iscoroutinefunction(actor.__call__):
+      logmsg = f'{self.name}, running coroutine {actor}'
+      logger.info(f'{logmsg}, args, kwargs : {args}, {kwargs}')   
+      return asyncio.ensure_future(actor(*args, **kwargs))
+    coro_or_future = actor.__call__(*args, **kwargs)
+    if asyncio.futures.isfuture(coro_or_future):
+      return coro_or_future
+    elif asyncio.iscoroutinefunction(coro_or_future):
+      return asyncio.ensure_future(actor(*args, **kwargs))
+    else:
+      logmsg = f'{self.name}, running {actor} in an executor future'
+      logger.info(f'{logmsg}, args, kwargs : {args}, {kwargs}')   
+      return self.eventloop.run_in_executor(None, partial(actor, *args, **kwargs))
 
 # -------------------------------------------------------------- #
 # AdhocExecutor
 # ---------------------------------------------------------------#
 class AdhocExecutor(BaseExecutor):
-  def __init__(self):
-    super().__init__()
-    self.runJob = self.getFuture        
+  def __init__(self, **kwargs):
+    super().__init__(**kwargs)
+    self.submit = self.getFuture
+
+  # -------------------------------------------------------------- #
+  # xmap 
+  # -- execute a task list exclusive of the eventloop
+  # -- handles zmq resource shutdown independent of aiohttp shudown
+  # ---------------------------------------------------------------#
+  def xmap(self, task, xargs, timeout):
+    self.executor.map(task, xargs, timeout=timeout)
 
 # -------------------------------------------------------------- #
-# DirectorExecutor
+# ServiceExecutor
 # ---------------------------------------------------------------#
-class DirectorExecutor(BaseExecutor):
-  def __init__(self):
-    super().__init__()
+class ServiceExecutor(AdhocExecutor):
+
+  def __init__(self, **kwargs):
+    super().__init__(**kwargs)
     self._actor = {}
     self.cache = JobCache()
 
   def __getitem__(self, actorId):
+    if actorId not in self._actor:
+      raise KeyError(f'{self.name}, actor {actorId} is not a registered actorId')
     return self._actor[actorId]
 
   def __setitem__(self, actorId, actor):
@@ -84,11 +99,17 @@ class DirectorExecutor(BaseExecutor):
     del self._actor[actorId]
 
   # -------------------------------------------------------------- #
-  # runJob
+  # addActor
   # ---------------------------------------------------------------#
-  def runJob(self, actorId, packet):
+  def addActor(self, actor):
+    self._actor[actor.actorId] = actor
+
+  # -------------------------------------------------------------- #
+  # run
+  # ---------------------------------------------------------------#
+  def run(self, actorId, packet):
     actor = self[actorId]
-    logger.info(f'### executor, about to run actor, {actor.name}, {packet.jobKey}')
+    logger.info(f'{self.name}, about to run {packet.taskKey} ...')
     return self.getFuture(actor, *packet.args, **packet.kwargs)
 
   # -------------------------------------------------------------- #
@@ -96,36 +117,68 @@ class DirectorExecutor(BaseExecutor):
   # ---------------------------------------------------------------#
   async def runNext(self, actorId, packet=None):
     if self.cache.hasNext(actorId, packet):
-      packet = self.cache.next(actorId)
-      await self.runJob(packet)
+      packet = self.cache.next(actorId, packet.taskKey)
+      await self.run(packet)
+
+  # -------------------------------------------------------------- #
+  # company
+  # ---------------------------------------------------------------#
+  @property
+  def company(self):
+    return [actor for actor in self._actor.values() if actor is not None]
+
+  # -------------------------------------------------------------- #
+  # stop
+  # ---------------------------------------------------------------#
+  async def start(self, actorId, *args, **kwargs):
+    await self[actorId](*args, **kwargs)
+
+  # -------------------------------------------------------------- #
+  # stop
+  # ---------------------------------------------------------------#
+  def stop(self, actorId=None):
+    if actorId:
+      self[actorId].stop()
+    else:
+      [actor.stop() for actor in self.company]  
+
+  # -------------------------------------------------------------- #
+  # destroy
+  # ---------------------------------------------------------------#
+  def destroy(self):
+    [actor.destroy() for actor in self.company]    
 
 # -------------------------------------------------------------- #
-# DelegateExecutor
+# MicroserviceExecutor
 # ---------------------------------------------------------------#
-class DelegateExecutor(BaseExecutor):
-  def __init__(self):
-    super().__init__()
+class MicroserviceExecutor(AdhocExecutor):
+
+  # -------------------------------------------------------------- #
+  # destroy
+  # ---------------------------------------------------------------#
+  def destroy(self):
+    pass
 
   # -------------------------------------------------------------- #
   # getFuture
   # ---------------------------------------------------------------#
-  def getFuture(self, actor, packet, taskNum):
-    return super().getFuture(actor, *packet.args, taskNum, **packet.kwargs)
+  def getTask(self, actor, packet, taskNum):
+    return self.getFuture(actor, packet.jobId, taskNum, *packet.args, **packet.kwargs)
 
   # -------------------------------------------------------------- #
-  # runJob
+  # run
   # ---------------------------------------------------------------#
-  async def runJob(self, actorGroup, packet, **kwargs):
-    logger.info(f'### executor, about to run actor group, {packet.jobKey}')
+  async def run(self, actorGroup, packet, **kwargs):
+    logger.info(f'### MicroserviceExecutor, about to run {packet.taskKey} ...')
 
-    result = JobMeta({'complete':True,'failed':False,'taskNum':0})
-    futures = {self.getFuture(actor, packet, taskNum): 
+    result = Article({'complete':True,'failed':False,'signal':201})
+    futures = {self.getTask(actor, packet, taskNum): 
                       taskNum for taskNum, actor in actorGroup.ordActors}
 
     try:
       done, pending = await asyncio.wait(futures.keys(), return_when=FIRST_EXCEPTION)
     except asyncio.CancelledError:
-      logger.exception(f'{packet.jobKey}, actorGroup is cancelled')
+      logger.exception(f'{packet.taskKey}, actorGroup is cancelled')
       result.failed = True
       return result
 
@@ -144,8 +197,7 @@ class DelegateExecutor(BaseExecutor):
         logger.info(f'{actorName} actor {actorId} is complete')
       except Exception as ex:
         logger.exception(f'{actorName} actor {actorId} errored', exc_info=True)
-        result.taskNum = taskNum
-        result.failed = True
+        result.merge({'taskNum':taskNum,'failed':True})
     return result
 
 # -------------------------------------------------------------- #
@@ -155,39 +207,36 @@ class JobCache:
   def __init__(self):
     self.cache = {}
     self.activeJob = {}
-    self.lock = RLock()
     
   # -------------------------------------------------------------- #
   # hasNext
   # ---------------------------------------------------------------#
   def hasNext(self, actorId, packet):
-    with self.lock:
-      if packet: 
-        # if active, append to the cache otherwise add the new job 
-        if actorId in self.activeJob:
-          logger.info('%s, caching job packet ...' % actorId)
-          self.cache[actorId].append(packet)
-          return False
-        else:
-          self.activeJob[actorId] = packet
-          self.cache[actorId] = [packet]
-          return True
-      # empty packet means test if there are cached jobs ready to execute
-      try:
-        if len(self.cache[actorId]) > 0:
-          logger.info('%s, running cached job ...' % actorId)    
-          return True
-      except KeyError:
-        logger.info('%s, delisting ...' % actorId)
-        self.activeJob.pop(actorId, None)
+    if packet: 
+      # if active, append to the cache otherwise add the new job 
+      if actorId in self.activeJob:
+        logger.info(f'{packet.taskKey}, caching job packet ...')
+        self.cache[actorId].append(packet)
         return False
+      else:
+        self.activeJob[actorId] = packet
+        self.cache[actorId] = [packet]
+        return True
+    # empty packet means test if there are cached jobs ready to execute
+    try:
+      if len(self.cache[actorId]) > 0:
+        logger.info(f'{packet.taskKey}, running cached job ...')
+        return True
+    except KeyError:
+      logger.info(f'{packet.taskKey}, delisting ...')
+      self.activeJob.pop(actorId, None)
+      return False
 
   # -------------------------------------------------------------- #
   # next
   # ---------------------------------------------------------------#
-  def next(self, actorId):
-    with self.lock:
-      logger.info('%s, running next job ...' % actorId)
-      packet = self.cache[actorId].pop(0)
-      self.activeJob[actorId] = packet
-      return packet
+  def next(self, actorId, taskKey):
+    logger.info(f'{taskKey}, running next job ...')
+    packet = self.cache[actorId].pop(0)
+    self.activeJob[actorId] = packet
+    return packet

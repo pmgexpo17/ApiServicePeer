@@ -1,0 +1,22 @@
+{
+  "mode" : {
+    "join" : ["services"]
+  },
+  "services" : 
+  [
+    {
+      "jobId": "csvtojsonR107",
+      "typeKey": "Service",
+      "actor": "first",
+      "caller": "controler",
+      "dependency": ["JDEP|csvtojsonR107"],
+      "synchronous": "True",
+      "runMode": {
+        "startTime": {
+          "relative": true,
+          "offset": 0
+        }
+      }
+    }
+  ]
+}

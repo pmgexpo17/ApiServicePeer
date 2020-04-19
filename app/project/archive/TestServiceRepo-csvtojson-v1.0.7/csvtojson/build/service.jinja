@@ -1,0 +1,65 @@
+# The MIT License
+#
+# Copyright (c) 2018 Peter A McGill
+#
+from apibase import AppCooperator, TaskError
+from . import promote, iterate
+import logging
+
+logger = logging.getLogger('asyncio.smart')
+
+# -------------------------------------------------------------- #
+# {{ rdata.className }}
+# ---------------------------------------------------------------#
+class {{ rdata.className }}(AppCooperator):
+  def __init__(self, actorId):
+    super().__init__(actorId)
+    self.state.hasNext = True
+    self.resolve = None
+
+  # -------------------------------------------------------------- #
+  # __getitem__
+  # ---------------------------------------------------------------#
+  def __getitem__(self, key):
+    if key in self._quicken:
+      return self._quicken[key]
+    if key in self.__dict__:
+      return self.__dict__[key]
+    raise TypeError(f'{key} is not a valid {self.name} attribute')
+
+  # -------------------------------------------------------------- #
+  # start
+  # ---------------------------------------------------------------#
+  @promote('{{ rdata.moduleName }}')
+  def start(self, jobId, jobMeta, **kwargs):
+    logger.info(f'{self.name} is starting ...')
+    self.jobId = jobId
+    self.resolve = Resolvar(jobId)
+    self.resolve.state = self.state    
+    self.resolve.start(jobId, jobMeta)
+     
+  # -------------------------------------------------------------- #
+  # onError
+  # ---------------------------------------------------------------#
+  def onError(self, ex):
+    state = self.state
+    actorId, actorName = self.tell()
+    if state.status != 'STARTED':
+      logMsg = f'actor error, job was {state.status}, aborting ...'
+    else:
+      logMsg = f'actor error, job {self.jobId} was {state.status}, aborting ...'
+
+    logMsg = f'{logMsg}\nActor, {actorName}, {actorId},'
+    logger.error(logMsg, exc_info=True)
+
+  # -------------------------------------------------------------- #
+  # destroy
+  # -------------------------------------------------------------- #
+  def destroy(self, *args, **kwargs):
+    pass
+
+  # -------------------------------------------------------------- #
+  # stop
+  # -------------------------------------------------------------- #
+  def stop(self, *args, **kwargs):
+    pass

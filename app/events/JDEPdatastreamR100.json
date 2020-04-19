@@ -1,0 +1,21 @@
+{
+  "eventKey" : "JDEP|datastreamR100",
+  "metaDoc" : {
+    "jobId": "datastreamR100",
+    "desc" : "datastream provider service",    
+    "projectId": "dataconvertA1",
+    "eventKey": "JGEN|datastreamR100",
+    "jenviron": "DEV",
+    "generator" : "apitools.generator:JobGeneratorB1",
+    "dependency": [],
+    "make": {
+      "mode": "DEV",
+      "build": "rebuild",
+      "copy": "replace",
+      "render": "render",
+      "resourcePath" : null,
+      "cleanup" : true
+    },
+    "reload": []
+  }
+}

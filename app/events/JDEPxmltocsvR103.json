@@ -1,0 +1,26 @@
+{
+  "eventKey" : "JDEP|xmltocsvR103",
+  "metaDoc" : {
+    "jobId": "xmltocsvR103",
+    "desc" : "data conversion service",
+    "projectId": "dataconvertA1",
+    "eventKey": "JGEN|xmltocsvR103",
+    "jenviron": "DEV",
+    "generator" : "apitools.generator:JobGeneratorA1",
+    "dependency" : ["JDEP|datastreamR100"],
+    "make": {
+      "mode": "DEV",
+      "build": "rebuild",
+      "copy": "replace",
+      "render": "render",
+      "cleanup" : true
+    },
+    "assets": {
+      "subPath" : "component/assets",
+      "metaFiles" : [
+        "REPOxmltocsvR103.json"    
+      ]
+    },
+    "reload": []
+  }
+}

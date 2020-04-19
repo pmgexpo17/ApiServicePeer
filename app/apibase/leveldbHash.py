@@ -49,7 +49,7 @@ class LeveldbHash():
     return cls.db
 
   @classmethod
-  def startFw(cls, apiBase, dbPath=None):
+  def __start__(cls, apiBase, dbPath=None):
     if not cls.db:
       if not dbPath:
         dbPath = f'{apiBase}/database/metastore'
@@ -83,13 +83,13 @@ class LeveldbHash():
 
   #----------------------------------------------------------------#
   # _bytes
-  # returns the raw bytes or bytearray value
+  # restores a bytes or bytearray value
   #----------------------------------------------------------------#		
   def _bytes(self, key):
     return self._leveldb.Get(key.encode())
 
   #----------------------------------------------------------------#
-  # put
+  # _put
   #----------------------------------------------------------------#		
   def _put(self, key, value):
     with self._lock:

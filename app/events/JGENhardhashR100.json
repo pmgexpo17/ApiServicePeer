@@ -1,0 +1,42 @@
+{
+  "eventKey": "JGEN|jhardhashR100",
+  "metaDoc" : {
+    "jobId": "jhardhashR100",
+    "assembly" : {
+      "desc" : "hardhash datastore service",
+      "projectId" : "dataconvertA1",
+      "gitUser" : "pmgexpo17",
+      "token" : "35d3fa837901cd12971180b7513c780d218008de",
+      "class" : "framework",
+      "owner" : "TestServiceRepo",
+      "product" : "hardhash",
+      "releaseTag" : "hardhash-v1.0.0",
+      "first" : null,
+      "hostName": "tcp://127.0.0.1",
+      "onError": "ignore"
+    },
+    "handlers": [
+      {
+        "typeKey": "DatastoreA",
+        "classToken": "project.dataconvertA1.jhardhashR100.handlerHdh:HardhashHA",
+        "args": []
+      }
+    ],
+    "serviceActors": [
+      "serviceA"
+    ],
+    "serviceA" : {
+      "assembly": {
+        "typeKey": "DatastoreA",
+        "classToken" : "project.dataconvertA1.jhardhashR100.serviceHdh:ServiceA"
+      }
+    },
+    "shutdownPolicy": {
+      "jobId": "jhardhashR100",
+      "projectId" : "dataconvertA1",
+      "onComplete": "ignore",
+      "onError": "ignore",
+      "typeKey": "ControlUnit"
+    }
+  }
+}

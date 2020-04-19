@@ -1,0 +1,247 @@
+{
+  "eventKey" : "JGEN|xmltocsvR103",
+  "metaDoc" : {
+    "jobId": "xmltocsvR103",
+    "assembly": {
+      "desc" : "data conversion service",  
+      "projectId" : "dataconvertA1",
+      "gitUser": "pmgexpo17",
+      "token" : "35d3fa837901cd12971180b7513c780d218008de",      
+      "owner" : "TestServiceRepo",
+      "product" : "xmltocsv",
+      "releaseTag" : "xmltocsv-v1.0.3",
+      "first" : "serviceA",
+      "hostName": "tcp://127.0.0.1"
+    },
+    "handlers": [
+      {
+        "typeKey": "Service",
+        "classToken": "apibase:ServiceHA"
+      },
+      {
+        "typeKey": "MicroserviceA",
+        "classToken": "project.dataconvertA1.xmltocsvR103.component.handlerHdh:HandlerMsB",
+        "args": []
+      },
+      {
+        "typeKey": "MicroserviceB",
+        "classToken": "project.dataconvertA1.datastreamR100.handlerDsm:DatastreamMsHA",
+        "args": [
+          {"jobId":"datastreamR100","typeKey":"DatastreamA","actor":"serviceA"}
+        ]
+      }
+    ],
+    "serviceActors": [
+      "serviceA",
+      "clientB",
+      "microA",
+      "microB"
+    ],
+    "serviceA": {
+      "assembly": {
+        "typeKey": "Service",
+        "classToken" : "project.dataconvertA1.xmltocsvR103.serviceA:ServiceA",
+        "hostName" : "tcp://127.0.0.1",
+        "repoMeta" : "REPO|xmltocsvR103",
+        "category" : "loansBB/profitA1",
+        "workspace" : "temp",
+        "fileExt": "xml",
+        "firstState": null
+      },
+      "build": {
+        "typeKey": "Service",
+        "classToken" : "project.dataconvertA1.xmltocsvR103.serviceA:ServiceA",        
+        "dependency" : null,
+        "resourcePath" : "build"
+      }
+    },
+    "serviceA-promote" : {
+      "NORMALISE_XML": {
+        "jobId":"xmltocsvR103",
+        "typeKey": "MicroserviceA",
+        "actor":"microA:normalise",
+        "synchronous": true,
+        "taskRange": 1,     
+        "caller": {
+          "jobId":"xmltocsvR103",
+          "actor": "serviceA",
+          "typeKey": "Service"
+        }
+      },
+      "COMPOSE_CSV_FILES": {
+        "jobId":"xmltocsvR103",
+        "typeKey": "MicroserviceA",
+        "actor":"microA:compose",
+        "synchronous": true,          
+        "taskRange": 4,
+        "args": [2],
+        "caller": {
+          "jobId":"xmltocsvR103",
+          "actor": "serviceA",
+          "typeKey": "Service"
+        }
+      },
+      "FINAL_HANDSHAKE": {
+        "jobId":"xmltocsvR103",
+        "typeKey": "Service",
+        "actor":"clientB",
+        "synchronous": true,
+        "caller": {
+          "jobId":"xmltocsvR103",
+          "actor": "serviceA",
+          "typeKey": "Service"
+        }
+      }
+    },
+    "serviceA-iterate" : {
+      "NORMALISE_XML": {
+        "inTransition": true,
+        "hasSignal": false,
+        "next": "COMPOSE_CSV_FILES",
+        "hasNext": false,
+        "signalFrom": ["MicroserviceA"]
+      },
+      "COMPOSE_CSV_FILES": {
+        "inTransition": true,
+        "hasSignal": false,
+        "next": "MAKE_ZIPFILE",
+        "hasNext": false,
+        "signalFrom": ["MicroserviceA"]
+      },
+      "MAKE_ZIPFILE": {
+        "inTransition": false,
+        "hasSignal": false,
+        "next": "FINAL_HANDSHAKE",
+        "hasNext": true,
+        "signalFrom": []
+      },
+      "FINAL_HANDSHAKE": {
+        "inTransition": true,
+        "hasSignal": true,
+        "next": "REMOVE_WORKSPACE",
+        "hasNext": false,
+        "signalFrom": []
+      },
+      "REMOVE_WORKSPACE": {
+        "inTransition": false,
+        "hasSignal": false,
+        "next": "NULL",
+        "hasNext": false,
+        "complete": true,
+        "signalFrom": []        
+      }
+    },
+    "clientB": {
+      "assembly": {
+        "typeKey": "Service",
+        "classToken" : "project.dataconvertA1.xmltocsvR103.clientB:ClientB",
+        "hostName" : "tcp://127.0.0.1",
+        "repoMeta" : "REPO|xmltocsvR103",
+        "category" : "auditAA/finAnlysA1",
+        "fileExt":"tar.gz"
+      },
+      "build": {
+        "typeKey": "Service",
+        "classToken" : "project.dataconvertA1.xmltocsvR103.clientB:ClientB",
+        "dependency" : null,
+        "resourcePath" : "build"
+      }
+    },
+    "clientB-promote" : {
+      "DOWNLOAD_ZIPFILE": {
+        "jobId":"xmltocsvR103",
+        "typeKey": "MicroserviceB",
+        "actor":"microB:streamreader",
+        "synchronous": true,
+        "taskRange": 1,        
+        "caller": {
+          "jobId":"xmltocsvR103",
+          "actor": "clientB",
+          "typeKey": "Service"
+        }
+      },
+      "FINAL_HANDSHAKE": {
+        "jobId":"xmltocsvR103",
+        "typeKey": "Service",
+        "actor":"serviceA",
+        "synchronous": true,
+        "caller": {
+          "jobId":"xmltocsvR103",
+          "actor": "clientB",
+          "typeKey": "Service"
+        }
+      }
+    },
+    "clientB-iterate" : {
+      "DOWNLOAD_ZIPFILE": {
+        "inTransition": true,
+        "hasSignal": false,
+        "next": "FINAL_HANDSHAKE",
+        "hasNext": false,
+        "complete": false,
+        "signalFrom": ["DatastreamA", "MicroserviceB"]
+      },
+      "FINAL_HANDSHAKE": {
+        "inTransition": false,
+        "hasSignal": true,
+        "next": "NULL",
+        "hasNext": false,
+        "complete": true,
+        "signal": 201,
+        "signalFrom": []      
+      }
+    },
+    "microA" : {
+      "assembly": {
+        "typeKey": "MicroserviceA",
+        "hostName" : "tcp://127.0.0.1"
+      },
+      "build": {
+        "dependency" : {
+          "moduleName": "jhardhashR100",
+          "subscriberClass": "HardhashSubscription",
+          "subscriberName" : "Hardhash"
+        },
+        "typeKey": "Microservice",
+        "resourcePath" : "build",
+        "libPath": "component"
+      },
+      "serviceActor" : {
+        "normalise" : {
+          "classToken" : "project.dataconvertA1.xmltocsvR103.microA:XmlNormaliser"
+        },
+        "compose" : {
+          "classToken" : "project.dataconvertA1.xmltocsvR103.microA:CsvComposer"
+        }
+      }
+    },
+    "microB" : {
+      "assembly": {
+        "typeKey": "MicroserviceB",
+        "hostName" : "tcp://127.0.0.1"
+      },
+      "build": {
+        "dependency" : {
+          "moduleName": "datastreamR100",
+          "subscriberClass": "DatastreamSubscription",
+          "subscriberName" : "Datastream"
+        },
+        "typeKey": "Microservice",
+        "resourcePath" : "build",
+        "libPath": null
+      },
+      "serviceActor" : {
+        "streamreader" : {
+          "classToken" : "project.dataconvertA1.xmltocsvR103.microB:DatastreamReader"
+        }
+      }
+    },
+    "shutdownPolicy": {
+      "jobId": "xmltocsvR103",
+      "projectId" : "dataconvertA1",
+      "onComplete": "terminate",
+      "onError": "terminate",
+      "typeKey": "ControlUnit"
+    }
+  }
+}

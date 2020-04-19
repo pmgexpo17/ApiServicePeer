@@ -1,0 +1,17 @@
+{
+  "eventKey": "REPO|csvtojsonR107",
+  "metaDoc" : {
+    "jsonToCsv": {
+      "sysPath" : "volume/volbankAE/bankAA/auditAA/finAnlysA1",
+      "consumerCategories" : [
+        "loansBB/profitA1"
+      ]
+    },
+    "csvToJson": {
+      "sysPath" : "volume/volbankAE/bankAA/loansBB/profitA1",
+      "consumerCategories" : [
+        "auditAA/finAnlysA1"
+      ]
+    }
+  }
+}

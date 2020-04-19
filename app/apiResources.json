@@ -1,0 +1,24 @@
+{
+	"mode" : {
+		"load" : ["services","events"]
+	},
+	"services" : {
+	},
+	"events" : {
+		"JGEN" : [
+			"REPOjsontocsvR103",
+			"REPOcsvtojsonR107",
+			"REPOxmltocsvR103",
+			"JDEPhardhashR100",			
+			"JGENhardhashR100",
+			"JDEPdatastreamR100",
+			"JGENdatastreamR100",
+			"JDEPjsontocsvR103",
+			"JGENjsontocsvR103",
+			"JDEPcsvtojsonR107",
+			"JGENcsvtojsonR107",
+			"JDEPxmltocsvR103",
+			"JGENxmltocsvR103"
+		]
+	}
+}
