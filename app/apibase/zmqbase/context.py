@@ -26,6 +26,8 @@ class ApiDatasource(ZmqDatasource):
 
   @classmethod
   def make(cls, brokerId, hostAddr, port):
+    # must call ZmqDatasource.__start__ to ensure the
+    # zmq.asyncio.context is available to all other descendants
     ZmqDatasource.__start__(hostAddr)
     broker = cls.makeBroker(brokerId, frontPort=port)
     return cls(broker)
