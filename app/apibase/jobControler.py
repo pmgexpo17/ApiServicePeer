@@ -79,8 +79,7 @@ class JobArrangement:
       return Note(result)
     elif render == 'Article':
       return Article(result)
-    else:
-      return result
+    return result
 
   # -------------------------------------------------------------- #
   # select
