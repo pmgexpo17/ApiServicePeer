@@ -129,7 +129,7 @@ class AbstractGenerator:
   # -- make.build flag --
   # -- 0 : no build
   # -- 1 : build only if module base does NOT exist
-  # -- 2 : rebuild when module base exists
+  # -- 2 : always rebuild
   # -------------------------------------------------------------#
   def generate(self):
     jobMeta = self.assemble()
