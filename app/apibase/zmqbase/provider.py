@@ -126,15 +126,13 @@ class Connware:
     self.sockopt = sockopt
     self.connkw = connkw
 
-  def modify(self, sock=None, conn=[], sockopt={}, connkw={}):
-    cware = Connware()
-    cware.sock = copy.copy(self.sock) if not sock else sock
-    cware.conn = copy.copy(self.conn) if not conn else conn
-    cware.sockopt = copy.copy(self.sockopt)
+  def modify(self, sock=[], conn=[], sockopt={}, connkw={}):
+    if sock:
+      self.sock = sock
+    if conn:
+      self.conn = conn
     if sockopt:
-      cware.sockopt.update(sockopt)
-    cware.connkw = copy.copy(self.connkw)
+      self.sockopt.update(sockopt)
     if connkw:
-      cware.connkw.update(connkw)
-    return cware
-
+      self.connkw.update(connkw)
+      
