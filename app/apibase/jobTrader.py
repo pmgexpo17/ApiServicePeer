@@ -62,7 +62,7 @@ class JobTrader:
     dealer = dealers.pop(jobId)
     self._dcache[jobId] = []
     self._install(jobId, dealer)
-    # install dependency jobs
+    # install job dependency components
     for djobId, dealer in dealers.items():
       self._install(djobId, dealer)
       self._dcache[jobId].append(djobId)
