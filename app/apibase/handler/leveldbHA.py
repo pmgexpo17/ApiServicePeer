@@ -23,6 +23,7 @@ class LeveldbHA(ServiceHA):
   def __init__(self, jobId):
     super().__init__(jobId)
 
+  '''
   @classmethod
   def make(cls, credPath):
     credPath = f'{apiBase}/etc/apipeer-sysadmin-firebase-accountkey.json'
@@ -32,6 +33,7 @@ class LeveldbHA(ServiceHA):
     fbApp = firebase_admin.initialize_app(cred)
     db = fbdb.reference(path=refPath,url=url)
     return cls(credPath, url)
+  ''' 
 
   @classmethod
   def make(cls, projectId, jobId):
