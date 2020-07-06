@@ -16,17 +16,17 @@ The wikipedia [software actor](https://en.wikipedia.org/wiki/Actor_model) descri
 
 - Added notes to app.apibase.handler.serviceHA.advance to explain what might be unexpected behaviour
 
-  # - Note : because this version is not for production, the state
-  # - transition is not resolved by decision tree or rule evaluation
-  # - as would be the case where the state transition has more than the one
-  # - condition. This basic version has 1 condition, ie, resolver[state.current]
-  # - completes successfully. In this verison, the state change parameters,
-  # - like inTransition and hasSignal are static, ie, they are determined
-  # - by the high-level program design. Normally, the state iteration would
-  # - happen at resolver[state.current] completion. But here it happens
-  # - when resolver[state.current] is called because the @iterate(actorKey) function
-  # - updates the state when __call__ runs. Normally, on resolver[state.current]
-  # - successful completion, the handler.advance method will call state.iterate()
-  # - to advance the state machine, THEN it will evaluate state.inTransition and
-  # - state.hasSignal
+  # Note : because this version is not for production, the state
+  # transition is not resolved by decision tree or rule evaluation
+  # as would be the case where the state transition has more than the one
+  # condition. This basic version has 1 condition, ie, resolver[state.current]
+  # completes successfully. In this verison, the state change parameters,
+  # like inTransition and hasSignal are static, ie, they are determined
+  # by the high-level program design. Normally, the state iteration would
+  # happen at resolver[state.current] completion. But here it happens
+  # when resolver[state.current] is called because the @iterate(actorKey) function
+  # updates the state when __call__ runs. Normally, on resolver[state.current]
+  # successful completion, the handler.advance method will call state.iterate()
+  # to advance the state machine, THEN it will evaluate state.inTransition and
+  # state.hasSignal
 
