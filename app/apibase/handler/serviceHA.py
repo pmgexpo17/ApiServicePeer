@@ -107,6 +107,19 @@ class ServiceHA(TaskHandler):
 
   # -------------------------------------------------------------- #
   # advance
+  # - Note : because this version is not for production, the state
+  # - transition is not resolved by decision tree or rule evaluation
+  # - as would be the case where the state transition has more the one
+  # - condition. This basic version has 1 condition, ie, resolver[state.current]
+  # - completes successfully. In this verison, the state change parameters,
+  # - like inTransition and hasSignal are static, ie, they are determined
+  # - by the high-level program design. Normally, the state iteration
+  # - happens at resolver[state.current] completion. But here it happens
+  # - when resolver[state.current] is called because the @iterate(actorKey)
+  # - updates the state when __call__ runs. Normally, on resolver[state.current]
+  # - successful completion, the handler.advance method would call state.iterate()
+  # - to advance the state machine, THEN it will evaluate state.inTransition and
+  # - state.hasSignal
   # - quicken is called only for these conditions
   # --- 1. actor is complete and actor is not the first / lead actor
   # --- 2. state is inTransition
