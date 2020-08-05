@@ -13,11 +13,6 @@ class DatastreamResponse(ZmqConnector):
   def __init__(self, sockware, *args, **kwargs):
     super().__init__(sockware.socket, **kwargs)
     self.sockAddr = sockware.address
-    self.__dict__['PREPARE'] = self._PREPARE
-    self.__dict__['START'] = self._START
-
-  def __getitem__(self, request):
-    return self.__dict__[request]
 
   #----------------------------------------------------------------#
   # make
@@ -31,44 +26,6 @@ class DatastreamResponse(ZmqConnector):
   #----------------------------------------------------------------#		
   def recv(self):
     return self.sock.recv_json()
-
-  #----------------------------------------------------------------#
-  # _PREPARE
-  #----------------------------------------------------------------#		
-  async def _PREPARE(self, jobId, taskId):
-    self.jobId = jobId
-    logger.info(f'{self.name}, job {jobId}, preparing {taskId} data stream ...')    
-    hardhash = HardhashContext.connector(jobId)
-    try:
-      dbKey = f'{jobId}|workspace'
-      workspace = hardhash[dbKey]
-      dbKey = f'{jobId}|datastream|infile'
-      self.infileName = hardhash[dbKey]
-    except KeyError as ex:
-      errmsg = f'{jobId}, failed to get job article from datastorage'
-      await self.sock.send_json([500, {'error': errmsg}])
-      raise TaskError(errmsg)
-
-    logger.info(f'{self.name}, datastream workspace, infile : {workspace}, {self.infileName}')
-    self.infilePath = f'{workspace}/{self.infileName}'
-    if not os.path.exists(self.infilePath):
-      errmsg = f'source file {self.infileName} does not exist in workspace'
-      await self.sock.send_json([500, {'error': errmsg}])
-    else:
-      await self.sock.send_json([200, {'status':'ready','infile':f'{self.infileName}'}])
-
-  #----------------------------------------------------------------#
-  # _START
-  #----------------------------------------------------------------#		
-  async def _START(self):
-    logger.info(f'{self.name}, job {self.jobId}, now streaming file {self.infileName} ...')
-    with open(self.infilePath, "rb") as bfh:
-      while True:
-        chunk = bfh.read(1024)
-        if not chunk:
-          await self.sock.send(b'')
-          break
-        await self.sock.send(chunk,flags=zmq.SNDMORE)
 
 #----------------------------------------------------------------#
 # DatastreamRequest
