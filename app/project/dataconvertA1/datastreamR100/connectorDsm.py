@@ -22,7 +22,20 @@ class DatastreamResponse(ZmqConnector):
     return cls(sockware, **kwargs)
 
   #----------------------------------------------------------------#
-  # recv
+  # send
+  #----------------------------------------------------------------#		
+  def sendReply(self, packet):
+    return self.sock.send_json(packet)
+
+  #----------------------------------------------------------------#
+  # sendBytes
+  #----------------------------------------------------------------#		
+  def sendBytes(self, bytes, flags=0):
+    return self.sock.send(bytes,flags)
+
+  #----------------------------------------------------------------#
+  # recv - returns a packet : [request, [args...]]
+  # -- AbstractTxnHost.serve will forward packet to ServiceA.perform
   #----------------------------------------------------------------#		
   def recv(self):
     return self.sock.recv_json()
