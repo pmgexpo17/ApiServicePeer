@@ -72,16 +72,16 @@ class ServiceA(AbstractTxnHost):
       self.infileName = hardhash[dbKey]
     except KeyError as ex:
       errmsg = f'{jobId}, failed to get job article from datastorage'
-      await self.sock.send_json([500, {'error': errmsg}])
+      await self._conn.sendReply([500, {'error': errmsg}])
       raise TaskError(errmsg)
 
     logger.info(f'{self.name}, datastream workspace, infile : {workspace}, {self.infileName}')
     self.infilePath = f'{workspace}/{self.infileName}'
     if not os.path.exists(self.infilePath):
       errmsg = f'source file {self.infileName} does not exist in workspace'
-      await self.sock.send_json([500, {'error': errmsg}])
+      await self._conn.sendReply([500, {'error': errmsg}])
     else:
-      await self.sock.send_json([200, {'status':'ready','infile':f'{self.infileName}'}])
+      await self._conn.sendReply([200, {'status':'ready','infile':f'{self.infileName}'}])
 
   #----------------------------------------------------------------#
   # _START - moved from connectorDsm.DatastreamResponse, to improve
@@ -93,6 +93,6 @@ class ServiceA(AbstractTxnHost):
       while True:
         chunk = bfh.read(1024)
         if not chunk:
-          await self.sock.send(b'')
+          await self._conn.sendBytes(b'')
           break
-        await self.sock.send(chunk,flags=zmq.SNDMORE)
+        await self._conn.sendBytes(chunk,flags=zmq.SNDMORE)
