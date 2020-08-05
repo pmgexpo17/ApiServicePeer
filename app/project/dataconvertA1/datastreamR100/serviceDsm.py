@@ -27,13 +27,19 @@ class ServiceA(AbstractTxnHost):
     except KeyError:
       return getattr(self, request)
 
+  #----------------------------------------------------------------#
+  # make - replaced zmq.DEALER with zmq.ROUTER to avoid confusion.
+  # ie - by convention a binded socket for serving packets to 1 or
+  # more clients should be type ROUTER and a connected socket for 
+  # receiving packets should be type DEALER.
+  #----------------------------------------------------------------#
   @classmethod
   def make(cls, context, actorId, packet):
     logger.info(f'{cls.__name__}, creating datastream service, packet : {packet.body}')
     connector = context.get(packet.taskId)
     if not connector:
       connware = Connware(
-          sock=[zmq.DEALER],
+          sock=[zmq.ROUTER],
           sockopt={zmq.IDENTITY:packet.taskId})
       connector = context.addConn(packet.taskId, connware)
     return cls(connector, context.contextId, actorId)
