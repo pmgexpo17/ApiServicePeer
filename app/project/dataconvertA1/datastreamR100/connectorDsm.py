@@ -1,5 +1,4 @@
 from apibase import ZmqConnector
-from apitools import HardhashContext
 import asyncio
 import logging, os
 import zmq
