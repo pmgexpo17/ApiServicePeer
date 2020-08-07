@@ -1,6 +1,6 @@
 from apibase import AbstractTxnHost, Connware, LeveldbHash, TaskError
-import asyncio
 from apitools import HardhashContext
+import asyncio
 import logging, os
 import zmq
 
