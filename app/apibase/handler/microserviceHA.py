@@ -126,7 +126,8 @@ class MicroserviceHandler(TaskHandler):
 
 # -------------------------------------------------------------- #
 # MicroserviceHA
-# -- Microservice handler for a client/server channel 
+# - Microservice Handler for an exclusive data channel for direct
+# - connection of client/service apps. eg DatastreamMicroservice
 # ---------------------------------------------------------------#
 class MicroserviceHA(MicroserviceHandler):
   executor = None
