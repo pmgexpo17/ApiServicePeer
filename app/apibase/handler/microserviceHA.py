@@ -1,5 +1,5 @@
 from apibase import ApiRequest, Article, MicroserviceExecutor, Note
-from .handler import MicroserviceHandler
+from .handler import TaskHandler
 import asyncio
 import importlib
 import logging
@@ -9,22 +9,37 @@ import uuid
 logger = logging.getLogger('asyncio.broker')
 
 # -------------------------------------------------------------- #
-# AbstractMsHandler
-# -- Service handler for stateless microservice actors
+# MicroserviceHandler - handler for stateless microservice actors
+# - this handler class : 
+#   - stores the context of 1 Microservice type actors
+#   - runs the related ActorGroup by multitasking future creation
 # ---------------------------------------------------------------#
-class AbstractMsHandler(MicroserviceHandler):
+class MicroserviceHandler(TaskHandler):
   executor = None
 
   def __init__(self, jobId):
     super().__init__(jobId)
     self._request = None
 
-	#------------------------------------------------------------------#
-	# make
-	#------------------------------------------------------------------#
+  #------------------------------------------------------------------#
+  # make
+  #------------------------------------------------------------------#
   @classmethod
   def make(cls, *args, **kwargs):
     raise NotImplementedError(f'{cls.__name__}.make is an abstract method')
+
+  # -------------------------------------------------------------- #
+  # apply
+  # ---------------------------------------------------------------#
+  def apply(self, actorKey, jobMeta):
+    serviceActor = jobMeta.pop('serviceActor')
+    assemblyA = jobMeta['assembly']
+    self.__dict__[actorKey] = Article(assemblyA)
+    for microKey, assemblyB in serviceActor.items():
+      subKey = f'{actorKey}:{microKey}'
+      assemblyB.update(assemblyA)
+      logger.info(f'{self.name}, applying {subKey} jobMeta : {assemblyB}')
+      self.__dict__[subKey] = ActorBrief(subKey, assemblyB)
 
   # -------------------------------------------------------------- #
   # arrange
@@ -103,11 +118,17 @@ class AbstractMsHandler(MicroserviceHandler):
     }
     await self.request('resume', rpacket)
 
+  # -------------------------------------------------------------- #
+  # start - protocol expects component futures returned
+  # ---------------------------------------------------------------#
+  def start(self, *args, **kwargs):
+    return []
+
 # -------------------------------------------------------------- #
 # MicroserviceHA
 # -- Microservice handler for a client/server channel 
 # ---------------------------------------------------------------#
-class MicroserviceHA(AbstractMsHandler):
+class MicroserviceHA(MicroserviceHandler):
   executor = None
 
   def __init__(self, jobId, peerNote=None):
@@ -139,7 +160,7 @@ class MicroserviceHA(AbstractMsHandler):
 # MicroserviceHB
 # -- Microservice handler using an embedded hardhash datastore
 # ---------------------------------------------------------------#
-class MicroserviceHB(AbstractMsHandler):
+class MicroserviceHB(MicroserviceHandler):
 
   def __init__(self, jobId):
     super().__init__(jobId)
