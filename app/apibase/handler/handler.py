@@ -168,39 +168,6 @@ class TaskHandler(AbstractHandler):
     pass
 
 # -------------------------------------------------------------- #
-# MicroserviceHandler -
-# - this handler class : 
-#   - stores the context of 1 Microservice type actors
-#   - runs the related ActorGroup by multitasking future creation
-# ---------------------------------------------------------------#
-class MicroserviceHandler(TaskHandler):
-
-  # -------------------------------------------------------------- #
-  # apply
-  # ---------------------------------------------------------------#
-  def apply(self, actorKey, jobMeta):
-    serviceActor = jobMeta.pop('serviceActor')
-    assemblyA = jobMeta['assembly']
-    self.__dict__[actorKey] = Article(assemblyA)
-    for microKey, assemblyB in serviceActor.items():
-      subKey = f'{actorKey}:{microKey}'
-      assemblyB.update(assemblyA)
-      logger.info(f'{self.name}, applying {subKey} jobMeta : {assemblyB}')
-      self.__dict__[subKey] = ActorBrief(subKey, assemblyB)
-
-  # -------------------------------------------------------------- #
-  # prepare
-  # ---------------------------------------------------------------#
-  def prepare(self, *args, **kwargs):
-    pass
-
-  # -------------------------------------------------------------- #
-  # start - protocol expects component futures returned
-  # ---------------------------------------------------------------#
-  def start(self, *args, **kwargs):
-    return []
-
-# -------------------------------------------------------------- #
 # ActorBrief
 # ---------------------------------------------------------------#
 class ActorBrief(Article):
