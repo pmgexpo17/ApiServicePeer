@@ -141,7 +141,7 @@ class MicroserviceHA(MicroserviceHandler):
   # submitTask
   # ---------------------------------------------------------------#
   async def submitTask(self, actorGroup, jpacket):
-    logger.info(f'{jpacket.taskKey}, requesting DatastoreA prepare for microservice job ...')
+    logger.info(f'{jpacket.taskKey}, requesting DatastreamA prepare for microservice job ...')
     ppacket = {
       'jobId': self.peerNote.jobId,
       'typeKey': self.peerNote.typeKey,
