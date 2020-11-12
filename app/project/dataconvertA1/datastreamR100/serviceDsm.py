@@ -36,7 +36,7 @@ class ServiceA(AbstractTxnHost):
     connector = context.get(packet.taskId)
     if not connector:
       connware = Connware(
-          sock=[zmq.DEALER],
+          sock=[zmq.ROUTER],
           sockopt={zmq.IDENTITY:packet.taskId})
       connector = context.addConn(packet.taskId, connware)
     return cls(connector, context.contextId, actorId)
@@ -54,7 +54,6 @@ class ServiceA(AbstractTxnHost):
     logger.info(f'{self.hostname}, {jobId} notified ...')
     self.active.clear()
     asyncio.sleep(0.1)
-
   #----------------------------------------------------------------#
   # _PREPARE - moved from connectorDsm.DatastreamResponse, to improve 
   # datastream service concept presentation
