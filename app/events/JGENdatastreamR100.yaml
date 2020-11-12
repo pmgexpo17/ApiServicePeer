@@ -1,0 +1,37 @@
+---
+eventKey: JGEN|datastreamR100
+metaDoc:
+  jobId: datastreamR100
+  assembly:
+    desc: datastream provider service
+    projectId: dataconvertA1
+    gitUser: pmgexpo17
+    token: XXX refer google firebase docs XXX
+    class: framework
+    owner: TestServiceRepo
+    product: datastream
+    releaseTag: datastream-v1.0.0
+    first: 
+    onError: ignore
+  hosts:
+  - hostA :
+    owner: BankA-FinAnalytics
+    serverId: machineBAF1
+    proxyIP4: 192.168.0.100
+    proxyPort: 5500
+  handlers:
+  - typeKey: DatastreamA
+    classToken: project.dataconvertA1.datastreamR100.handlerDsm:DatastreamHA
+    args: []
+  serviceActors:
+  - serviceA
+  serviceA:
+    assembly:
+      typeKey: DatastreamA
+      classToken: project.dataconvertA1.datastreamR100.serviceDsm:ServiceA
+  shutdownPolicy:
+    jobId: datastreamR100
+    projectId: dataconvertA1
+    onComplete: terminate
+    onError: terminate
+    typeKey: ControlUnit

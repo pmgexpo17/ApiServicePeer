@@ -11,7 +11,7 @@ logger = logging.getLogger('asyncio.microservice')
 
 #------------------------------------------------------------------#
 # ServiceHB
-# -- Handler for backend services to compliment frontend microservices
+# -- Handler for backend services to compliment client/frontend microservices
 # -- clients
 #------------------------------------------------------------------#
 class ServiceHB(TaskHandler):

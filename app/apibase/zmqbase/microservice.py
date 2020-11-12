@@ -96,6 +96,7 @@ class AbstractSubscriptionA(AbstractSubscription):
     self.peerNote = peerNote
     self.started = []
     self.actorKey = None
+    # _request is a microservice client connector to request promote (run) and restart
     self._request = ApiRequest.connector(peerNote.jobId)
 
   @property
@@ -149,13 +150,16 @@ class AbstractSubscriptionA(AbstractSubscription):
 
     # provider service creation
     logger.info(f'{self.name}, requesting {owner} provider subscription, taskId : {taskId} ...')
+    # SubscriptionA promote protocol requires the ms-handler to return the service bind address
+    # so that the microservice client context can connect to that address in connector creation
     status, response = await self.submit(taskNum, 'promote', owner)
     if status not in (200,201):
       raise TaskError(f'{self.name}, {owner} provider subscription failed : {response}')
     self.started.append(taskNum)
     logger.info(f'{self.name}, {owner} provider service {taskId} startup response : {response}')
 
-    # client connector creation
+    # set connware sockAddr for client connector creation
+    # this sets up an exclusive microservice data channel
     sockAddr = response['sockAddr']
     connware = Connware(
       sock=[zmq.DEALER, sockAddr],

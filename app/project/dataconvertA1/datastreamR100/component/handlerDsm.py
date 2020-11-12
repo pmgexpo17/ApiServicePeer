@@ -7,7 +7,7 @@ logger = logging.getLogger('asyncio.broker')
 
 # -------------------------------------------------------------- #
 # DatastreamHA
-# -- Hardhash datastream microservice handler - backend context
+# -- Datastream microservice handler - backend context
 # ---------------------------------------------------------------#
 class DatastreamHA(ServiceHB):
 
@@ -23,7 +23,7 @@ class DatastreamHA(ServiceHB):
 
 # -------------------------------------------------------------- #
 # DatastreamMsHA
-# -- Hardhash datastream microservice handler - frontend context
+# -- Datastream microservice handler - frontend context
 # ---------------------------------------------------------------#
 class DatastreamMsHA(MicroserviceHA):
 
