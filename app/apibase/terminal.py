@@ -48,11 +48,11 @@ class Terminal(AbstractSystemUnit):
       if stdin:
         prcss = Popen(sysArgs,stdin=PIPE,cwd=cwd)
         prcss.communicate(stdin)
-        return
+        return prcss
       elif stdout:
         prcss = Popen(sysArgs,stdout=stdout,stderr=stdout,cwd=cwd)
         prcss.communicate()
-        return
+        return prcss
       prcss = Popen(sysArgs,stdout=PIPE,stderr=PIPE,cwd=cwd)
       (stdout, stderr) = prcss.communicate()
       if prcss.returncode:
