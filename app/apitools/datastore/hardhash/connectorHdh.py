@@ -114,7 +114,7 @@ class LeveldbConnector(AbstractConnector):
   #----------------------------------------------------------------#		
   def put(self, key, value):
     try:
-      with self._lock:          
+      with self._lock:
         bValue = pickle.dumps(value, self._pickleMode)
         self._leveldb.Put(key.encode(), bValue)
     except Exception as ex:

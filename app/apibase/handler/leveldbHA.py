@@ -31,7 +31,7 @@ class LeveldbHA(ServiceHA):
     #cred = credentials.RefreshToken(credPath)
     cred = credentials.Certificate(credPath)
     fbApp = firebase_admin.initialize_app(cred)
-    db = fbdb.reference(path=refPath,url=url)
+    db = fbApp.reference(path=refPath,url=url)
     return cls(credPath, url)
   ''' 
 
