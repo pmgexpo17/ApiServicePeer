@@ -9,12 +9,16 @@ except AttributeError:
   pickleMode = pickle.HIGHEST_PROTOCOL
 
 #================================================================#
-# Note - new Note to replace previous scope and model
+# Note
 #===============================================================-#
 class Note:
   def __init__(self, packet={}, recursive=True):
     self._update(packet, recursive)
-    
+
+  def __call__(self, packet={}):
+    self._update(packet, False)
+    return self
+  
   def __getitem__(self, key):
     if key in self.__dict__:
       return self.__dict__[key]
@@ -26,16 +30,14 @@ class Note:
   @property
   def body(self):
     return self.__dict__.copy()
-  
-  def bodify(self, deNote=False):
-    if not deNote:
-      return self.__dict__.copy()
-    body = self.__dict__.copy()
-    for key, value in body.items():
-      if isinstance(value, Note):
-        body[key] = value.__dict__
-    return body
 
+  # copy the selected attribute and return it converted if it is a dict type
+  def annote(self, key, recursive=True) -> object:
+    value = self[key].copy()
+    if isinstance(value, dict):
+      return Note(value, recursive)
+    return value
+  
   # emulate dict.get
   def get(self, key, default=None):
     if hasattr(self, key):
@@ -62,6 +64,14 @@ class Note:
       raise TypeError('dict.update requires a dict argument')
     self._update(packet, recursive)
 
+  # reduce the body back to dict data
+  def rawcopy(self):
+    body = self.body
+    for key, value in body.items():
+      if isinstance(value, Note):
+        body[key] = value.body
+    return Note(body, False)
+
   # rename an attribute
   def rename(self, fkey, tkey: str):
     if not (isinstance("fkey",str) and isinstance("tkey",str)):
@@ -71,7 +81,6 @@ class Note:
         tkey = tkey.replace("-","_")
       self.__dict__[tkey] = self.__dict__.pop(fkey)
 
-  # copy the selected Note attributes and if dict child nodes exist convert them to Note
   def select(self, *keys, recursive=True) -> object:
     if not keys:
       return self.copy()
@@ -105,7 +114,7 @@ class Note:
         self.__dict__[key] = Note(packet=value, recursive=False)
 
 #================================================================#
-# Article - new Article to replace previous scope and model
+# Article
 #===============================================================-#
 class Article(Note):
 
