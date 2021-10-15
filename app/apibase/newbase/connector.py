@@ -91,13 +91,18 @@ class QuConnector:
   # _write
   #----------------------------------------------------------------//
   async def _write(self, payload):
+    if isinstance(payload, Article):
+      payload = payload.reducce()
     await self._writer.put(payload)
 
   #----------------------------------------------------------------//
   # receive
   #----------------------------------------------------------------//
-  async def _read(self) -> Any:
-    return await self._reader.get()
+  async def _read(self) -> object:
+    payload = await self._reader.get()
+    if isinstance(payload, dict):
+      return Article.deducce(payload)
+    return payload
 
   #----------------------------------------------------------------//
   # cloneReversed
@@ -380,7 +385,7 @@ class ConnWATC:
     except asyncio.CancelledError:
       logger.warn("{} send coroutine was cancelled".format(self.name))
       self.statusCode = 554
-    except asyncio.ConnectionResetError:
+    except ConnectionResetError:
       logger.warn("{} connnection reset by peer while sending".format(self.name))
       self.statusCode = 553
     except Exception as ex:

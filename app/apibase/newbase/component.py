@@ -33,8 +33,9 @@ class Note:
 
   # copy the selected attribute and return it converted if it is a dict type
   def annote(self, key, recursive=True) -> object:
-    value = self[key].copy()
+    value = self[key]
     if isinstance(value, dict):
+      value = value.copy()
       return Note(value, recursive)
     return value
   
@@ -65,12 +66,14 @@ class Note:
     self._update(packet, recursive)
 
   # reduce the body back to dict data
-  def rawcopy(self):
+  def rawcopy(self, outNote=True):
     body = self.body
     for key, value in body.items():
       if isinstance(value, Note):
         body[key] = value.body
-    return Note(body, False)
+    if outNote:
+      return Note(body, False)
+    return body
 
   # rename an attribute
   def rename(self, fkey, tkey: str):
@@ -118,11 +121,23 @@ class Note:
 #===============================================================-#
 class Article(Note):
 
+  # QuConn equivalent of Conn using Article.deserialize - construct Article from dict
+  @classmethod
+  def deducce(cls, packet: dict)-> object:
+    if isinstance(packet, dict):
+      return cls(packet)
+    return packet
+
+  # for default socket Connector
   @classmethod
   def deserialize(cls, bpacket: bytearray):
     packet = pickle.loads(bpacket)
     logger.debug("Deserialized article packet : \n{}".format(packet))
     return cls(packet)
+
+  # QuConn equivalent of Conn using article.serialize - reduces Article to a raw dict collection
+  def reducce(self)-> dict:
+    return self.rawcopy(False)
 
   def serialize(self)-> bytearray:
     packet = self.body
