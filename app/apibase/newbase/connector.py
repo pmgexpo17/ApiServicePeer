@@ -185,7 +185,7 @@ class ChannelProps:
   def __post_init__(self, config):
     # self.future = SafeFuture(self.name)
     self.future = None
-    self.timeout = config.get("timeout", None)
+    self.timeout = config.get("timeout", 0)
     self.retries = config.get("retries", 0)
     
   # -------------------------------------------------------------- #
@@ -230,7 +230,7 @@ class ChannelProps:
   # setProps
   #-----------------------------------------------------------------#
   def setProps(self, config):
-    self.timeout = config.get("timeout",None)
+    self.timeout = config.get("timeout", 0)
     self.retries = config.get("retries", 0)
 
 #=================================================================#
@@ -244,12 +244,14 @@ class ConnWATC:
   rprops: ChannelProps = field(init=False)
   wprops: ChannelProps = field(init=False)
   statusCode: int = field(init=False)
+  timedoutMode: str = field(init=False)
   
   def __post_init__(self, config):
     self.blocked = False
     self.rprops = ChannelProps(config.readProps)
     self.wprops = ChannelProps(config.writeProps)
     self.statusCode = 200
+    self.timedoutMode = ""
 
   @property
   def name(self):
@@ -296,8 +298,14 @@ class ConnWATC:
       return "write"
     if self.rprops.engaged():
       return "read"
-    return "none"
+    return "idle"
 
+  #-----------------------------------------------------------------#
+  # getTimedoutMode
+  #-----------------------------------------------------------------#
+  def getTimedoutMode(self):
+    return self.timedoutMode
+  
   #-----------------------------------------------------------------#
   # receive
   #-----------------------------------------------------------------#
@@ -311,11 +319,12 @@ class ConnWATC:
     if timeout == 0:
       timeout = self.rprops.timeout
     # logger.debug("{} is receiving with a {} sec timeout ...".format(self.name, timeout))
-    # timeout == None means do NOT use a timeout
+    # timeout == 0 means do NOT use a timeout
     # retries is only relevent when a timeout is applied
-    retries = 0 if timeout == None else self.rprops.retries
+    retries = 0 if timeout == 0 else self.rprops.retries
     first = 1
     try:
+      self.timedoutMode = ""
       while retries > 0 or first:
         try:
           payload = await self.recvWATC(timeout)
@@ -328,6 +337,7 @@ class ConnWATC:
           else:
             retries -= 1
           logger.warn("{} receiving timed out. Available retries : {}".format(self.name, retries))
+      self.timedoutMode = "read"
     except asyncio.CancelledError:
       logger.warn("{} read coroutine was cancelled".format(self.name))
       self.statusCode = 554
@@ -347,7 +357,7 @@ class ConnWATC:
     # timeout time unit is seconds
     future = create_task(self.conn._read())
     self.rprops.addFuture(future, self.name, "reading")
-    if timeout == None:
+    if timeout == 0:
       # logger.debug("!!! {} is receiving without a timeout !!!".format(self.name))
       return await future
     return await asyncio.wait_for(future, timeout)
@@ -365,11 +375,12 @@ class ConnWATC:
     if timeout == 0:
       timeout = self.wprops.timeout
     # logger.debug("{} is sending with a {} sec timeout ...".format(self.name, timeout))
-    # timeout == None means do NOT use a timeout
+    # timeout == 0 means do NOT use a timeout
     # retries is only relevent when a timeout is applied
-    retries = 0 if timeout == None else self.wprops.retries
+    retries = 0 if timeout == 0 else self.wprops.retries
     first = 1
     try:
+      self.timedoutMode = ""
       while retries > 0 or first:
         try:
           await self.sendWATC(payload, timeout)
@@ -382,6 +393,7 @@ class ConnWATC:
           else:
             retries -= 1
           logger.warn("{} sending timed out. Available retries : {}".format(self.name, retries))
+      self.timedoutMode = "write"
     except asyncio.CancelledError:
       logger.warn("{} send coroutine was cancelled".format(self.name))
       self.statusCode = 554
@@ -400,18 +412,16 @@ class ConnWATC:
     # timeout time unit is seconds
     future = create_task(self.conn._write(payload))
     self.wprops.addFuture(future, self.name, "writing")
-    if timeout == None:
+    if timeout == 0:
       # logger.debug("!!! {} is sending without a timeout !!!".format(self.name))
       return await future
     await asyncio.wait_for(future, timeout)
   
   #-----------------------------------------------------------------#
-  # setName
+  # setId
   #-----------------------------------------------------------------#
-  def setName(self, name):
-    self.name = name
-    self.rprops.setName(name)
-    self.wprops.setName(name)
+  def setId(self, id):
+    self.conn.id = id
 
   #-----------------------------------------------------------------#
   # setProps

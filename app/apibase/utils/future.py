@@ -25,7 +25,7 @@ class SafeFuture:
       async with self._lock:
         if not self.future:
           return
-        logger.debug(f"Cancelling {self.owner} future")
+        logger.debug(f"Cancelling [{self.owner}] future")
         if not self.future.cancelled():
           # msg arg is not available < python 3.9
           # self.future.cancel(msg=msg)
@@ -38,7 +38,7 @@ class SafeFuture:
   def put(self, value: Future, onDoneCb: object):
     async def run():
       async with self._lock:
-        logger.debug(f"Setting {self.owner} future with doneCallback attached")
+        logger.debug(f"Setting [{self.owner}] future with doneCallback attached")
         value.add_done_callback(onDoneCb)
         self.future = value
     create_task(run())
@@ -47,10 +47,10 @@ class SafeFuture:
     async def run():
       async with self._lock:
         if self.future == fut:
-          logger.debug(f"Discarding {self.owner} future")
+          logger.debug(f"Discarding [{self.owner}] future")
           self.future = None
     create_task(run())
       
   def get(self) -> Future:
-    logger.debug(f"Getting {self.owner} future")
+    logger.debug(f"Getting [{self.owner}] future")
     return self.future

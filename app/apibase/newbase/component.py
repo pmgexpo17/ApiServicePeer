@@ -50,7 +50,10 @@ class Note:
       branches = attrName.split(".")
       currNode = self
       for nodeName in branches:
-        if not hasattr(currNode, nodeName):
+        if isinstance(currNode, dict):
+          if not nodeName in currNode:
+            return False
+        elif not hasattr(currNode, nodeName):
           return False
         currNode = currNode[nodeName]
     return True
@@ -66,11 +69,13 @@ class Note:
     self._update(packet, recursive)
 
   # reduce the body back to dict data
-  def rawcopy(self, outNote=True):
+  def rawcopy(self, outNote=True, pop=[]):
     body = self.body
     for key, value in body.items():
       if isinstance(value, Note):
         body[key] = value.body
+    for key in pop:
+      body.pop(key, None)
     if outNote:
       return Note(body, False)
     return body
@@ -92,7 +97,7 @@ class Note:
 
   # return the selected key values in a list
   def tell(self, *keys):
-    return [self.__dict__[key] for key in keys if key in self.__dict__]
+    return [self.get(key) for key in keys]
 
   def remove(self, *args):
     for key in args:
@@ -133,16 +138,16 @@ class Article(Note):
   def deserialize(cls, bpacket: bytearray):
     packet = pickle.loads(bpacket)
     logger.debug("Deserialized article packet : \n{}".format(packet))
-    return cls(packet)
+    if isinstance(packet, dict):
+      return cls(packet)
+    return packet
+
 
   # QuConn equivalent of Conn using article.serialize - reduces Article to a raw dict collection
   def reducce(self)-> dict:
-    return self.rawcopy(False)
+    return self.rawcopy(outNote=False)
 
   def serialize(self)-> bytearray:
-    packet = self.body
-    for key, value in packet.items():
-      if isinstance(value, Note):
-        packet[key] = value.body
+    packet = self.rawcopy(outNote=False)
     logger.debug("Serialized article packet : \n{}".format(packet))
     return bytearray(pickle.dumps(packet, pickleMode))

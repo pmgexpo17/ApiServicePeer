@@ -1,12 +1,26 @@
 import asyncio
+import json
 import logging
 import re
 
 from typing import List, Union
+from scraperski.component import Note
+
 
 logger = logging.getLogger('asyncio')
 
 numPattern = r"(?<![a-zA-Z:])[-+]?\d*\.?\d+"
+
+repoDoc = """<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Data</title>
+  </head>
+  <body>
+  {}
+  </body>
+</html>"""
 
 #-----------------------------------------------------------------#
 # create_task
@@ -30,6 +44,16 @@ def getNumeric(param: str) -> Union[float, int]:
   if "." in param:
     return float(param)
   return int(param)
+
+#-----------------------------------------------------------------#
+# loadJsonConfig
+#-----------------------------------------------------------------#
+def loadJsonConfig(configJs,recursive=False):
+  if not configJs.exists():
+    errmsg = "Data-mining configuation file does not exist.\n file : {}"
+    raise Exception(errmsg.format(configJs))
+  cfgData = json.loads(configJs.read_bytes())
+  return Note(cfgData, recursive)
 
 #-----------------------------------------------------------------#
 # parseFloat
