@@ -22,7 +22,8 @@ class Note:
   def __getitem__(self, key):
     if key in self.__dict__:
       return self.__dict__[key]
-    return getattr(self, key)
+    if hasattr(self, str(key)):
+      return getattr(self, str(key))
 
   def __setitem__(self, key, value):
     self.__dict__[key] = value
@@ -39,6 +40,10 @@ class Note:
       return Note(value, recursive)
     return value
   
+  def delete(self, key):
+    if self.hasAttr(key):
+      delattr(self, key)
+      
   # emulate dict.get
   def get(self, key, default=None):
     if hasattr(self, key):
@@ -69,11 +74,11 @@ class Note:
     self._update(packet, recursive)
 
   # reduce the body back to dict data
-  def rawcopy(self, outNote=True, pop=[]):
+  def rawcopy(self, outNote=True, pop=[], shallow=True):
     body = self.body
     for key, value in body.items():
       if isinstance(value, Note):
-        body[key] = value.body
+        body[key] = value.body if shallow else value.rawcopy(outNote=False)
     for key in pop:
       body.pop(key, None)
     if outNote:
@@ -145,9 +150,9 @@ class Article(Note):
 
   # QuConn equivalent of Conn using article.serialize - reduces Article to a raw dict collection
   def reducce(self)-> dict:
-    return self.rawcopy(outNote=False)
+    return self.rawcopy(outNote=False,)
 
   def serialize(self)-> bytearray:
-    packet = self.rawcopy(outNote=False)
+    packet = self.rawcopy(outNote=False, shallow=False)
     logger.debug("Serialized article packet : \n{}".format(packet))
     return bytearray(pickle.dumps(packet, pickleMode))

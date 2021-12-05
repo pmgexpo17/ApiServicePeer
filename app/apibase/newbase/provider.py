@@ -131,14 +131,6 @@ class QuServer:
     return "QuServer-" + self.qchannel.conn.id
 
   #-----------------------------------------------------------------#
-  # close
-  #-----------------------------------------------------------------#
-  async def close(self):
-    logger.debug(f"{self.name} is closing ...")
-    await self.qchannel.close()
-    self.status = "CLOSED"
-
-  #-----------------------------------------------------------------#
   # disconnected
   #-----------------------------------------------------------------#
   @property
@@ -169,11 +161,20 @@ class QuServer:
       if self.disconnected:
         return
       # logger.debug(f"{self.name} is creating a new connection with id : {cid}")
-      qconn = QuConnector.open(cid=cid)
+      qconnA = QuConnector.open(cid=cid)
       # need to swap reader and writer at one end for correct dual-band connector arrangement
-      self.acceptor(qconn._writer, qconn._reader)
-      await self.qchannel.send(qconn)
-      
+      qconnB = qconnA.cloneReversed()
+      self.acceptor(qconnB._reader, qconnB._writer)
+      await self.qchannel.send(qconnA)
+
+  #-----------------------------------------------------------------#
+  # shutdown
+  #-----------------------------------------------------------------#
+  async def shutdown(self):
+    logger.debug(f"{self.name} is shutting down ...")
+    await self.qchannel.close()
+    self.status = "CLOSED"
+
 #================================================================#
 # ConnProvider
 #===============================================================-#
@@ -234,7 +235,7 @@ class ConnProvider:
     return conn
 
   #----------------------------------------------------------------//
-  # new
+  # newWATC
   #----------------------------------------------------------------//
   async def newWATC(self, config: Note, cid="0") -> ConnWATC:
     if not isinstance(config, Note) or not config.hasAttr("connWATC"):

@@ -30,26 +30,26 @@ class AbcConnector:
   # close
   #----------------------------------------------------------------//
   def close(self):
-    raise NotImplementedError("{}.close is still an abstract method".format(self.name))
+    raise NotImplementedError(f"{self.name}.close is still an abstract method")
 
   #----------------------------------------------------------------//
   # open
   #----------------------------------------------------------------//
   @classmethod
   def open(cls) -> object:
-    raise NotImplementedError("{}.open is still an abstract method".format(cls.__name__))
+    raise NotImplementedError(f"{cls.__name__}.open is still an abstract method")
   
   #----------------------------------------------------------------//
   # read
   #----------------------------------------------------------------//
   def _read(self):
-    raise NotImplementedError("{}.read is still an abstract method".format(self.name))
+    raise NotImplementedError(f"{self.name}._read is still an abstract method")
 
   #----------------------------------------------------------------//
   # write
   #----------------------------------------------------------------//
   def _write(self):
-    raise NotImplementedError("{}.close is still an abstract method".format(self.name))
+    raise NotImplementedError(f"{self.name}._write is still an abstract method")
 
 #================================================================#
 # QuConnector - for unit testing without socket connection overhead
